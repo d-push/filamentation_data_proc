@@ -4,11 +4,11 @@
 Created on Mon Jan 14 13:35:53 2019
 
 @author: dmitrii
+
+A set of functions for modes and luminescence data reading and processing.
+
 """
-#lumin_clean.py
-"""
-luminiscence images cleaning procedure
-"""
+
 
 import numpy as np
 import matplotlib as mpl
@@ -67,7 +67,7 @@ def read_raw_Mind_Vision(filename):
 	- filename : path (string)
 		Path to the file to read data from.
 	"""
-	
+
 	#Constants.
 	width = 1280 #Длина кадра.
 	height = 960 #Ширина кадра.
@@ -225,9 +225,19 @@ def run_av(data, window=11):
 
 	return(data_1)
 
-def find_limits(data, method='simple'):
+def find_limits(data, method='simple', add_sigma = None):
 	'''
-	Функция находит максимальное и минимальное значение для печати двумерного массива.
+	Search limits (v_min and V_max) for 2D array plotting.
+
+	Parameters:
+	----------------------
+	data : 2D array
+		Data array limits search
+	method : 'simple' or 'good'
+		Max search algorithm: 'simple' - to pick up an absolute maximum of the array, 'good' - to use maximum average of 9 pixel square.
+	add_sigma : float
+		A number of sigma added for background value for v_min. None - use v_min as is. v_min is searched as average of four 20x20-pixel squares at the array angles.
+	
 	'''
 	#Константы
 	width = 3
@@ -251,4 +261,56 @@ def find_limits(data, method='simple'):
 		print("ERROR: in find_limits (lumin_proc.py) - unknown keyword for scale maxima search")
 		return False
 	v_min = (np.sum(data[:20, :20]) + np.sum(data[-20:, :20]) + np.sum(data[:20,-20:]) + np.sum(data[-20:,-20:]))/1600.0
+
+	if add_sigma:
+		angle_squares = np.hstack((data[:20, :20], data[-20:, :20], data[:20,-20:], data[-20:,-20:]))
+		sigma = np.std(angle_squares)
+		v_min = v_min + add_sigma*sigma
+
 	return (v_min, v_max)
+
+def subtract_plane(data):
+	'''
+	Function subtracts an inclined plane from data background.
+	'''
+
+	#Constants.
+	stripe_width = 5 #Ширина полосы по краям кадра (в пикселях), используемая для расчёта параметров вычитаемой плоскости.
+
+	#Выделяем полосы вдоль сторон массива шириной stripe_width без повторения элементов.
+	data1 = data[:stripe_width,].flatten()
+	data2 = data[stripe_width:-stripe_width, :stripe_width].flatten()
+	data3 = data[stripe_width:-stripe_width, -stripe_width:].flatten()
+	data4 = data[-stripe_width: ,].flatten()
+
+	values = np.hstack((data1, data2, data3, data4)) #Cоединяем значения выбранных элементов в один одномерный массив.
+
+	#Готовим массив X ординат (номеров) элементов из массива values.
+	x1 = np.tile(np.arange(0, data.shape[1]), stripe_width)
+	x2 = np.tile(np.arange(0, stripe_width), data.shape[0]-2*stripe_width)
+	x3 = np.tile(np.arange(data.shape[1]-stripe_width, data.shape[1]), data.shape[0]-2*stripe_width)
+	x4 = np.tile(np.arange(0, data.shape[1]), stripe_width)
+
+	X = np.hstack((x1, x2, x3, x4))
+
+	#Готовим массив Y ординат (номеров) элементов из массива values.
+	y1 = np.repeat(np.arange(0, stripe_width), data.shape[1])
+	y2 = np.repeat(np.arange(stripe_width, data.shape[0]-stripe_width), stripe_width)
+	y3 = np.repeat(np.arange(stripe_width, data.shape[0]-stripe_width), stripe_width)
+	y4 = np.tile(np.arange(data.shape[0]-stripe_width, data.shape[0]), data.shape[1])
+
+	Y = np.hstack((y1, y2, y3, y4))
+
+	Z = np.ones_like(X)
+	coords = np.vstack((X,Y,Z)).T #Массив с "правильной" (с т.зр. перемножения матриц) размерностью.
+
+	A, B, C = np.linalg.lstsq(coords, values, rcond=None)[0] #МНК
+
+	I = np.arange(0, data.shape[1])
+	J = np.arange(0, data.shape[0])
+	ii, jj = np.meshgrid(I,J, indexing='xy')
+
+	plane_data = A*ii+B*jj+C
+	data = data - plane_data
+
+	return(data)
