@@ -109,14 +109,14 @@ def plot_heat_map_latex(data, filename, v_min, v_max, dpi=300, log=False, scale=
 
 	return True
 
-def plot_heat_map_bar_latex(data, filename, v_min, v_max, dpi=300, scale=(500/88.7), log=False):
+def plot_heat_map_bar_latex(data, filename, v_min, v_max, dpi=300, grad_num = 256, scale=(500/88.7), log=False):
 	"""
 	Function plots heat maps of data numpy 2d array and save result to filename.png.
 	"""
 	#heat map plotting
 
 	colors_l = [(0,0,0), (0,0,1), (0,1,0), (1,1,0), (1,0,0)]
-	cm = mplc.LinearSegmentedColormap.from_list('gnuP', colors_l, N=100)
+	cm = mplc.LinearSegmentedColormap.from_list('gnuP', colors_l, N=grad_num)
 
 	x_phys_length = data.shape[1]*scale #physical length of x-axis
 	y_phys_length = data.shape[0]*scale #physical length of y-axis
@@ -151,7 +151,7 @@ def plot_heat_map_bar_latex(data, filename, v_min, v_max, dpi=300, scale=(500/88
 		#plt.plot((100,297), (100, 100), 'k', color='w')
 	else:
 		im = ax.imshow(data, cmap=cm, vmin=v_min, vmax=v_max, extent=extent)
-		
+
 	fig.colorbar(im)
 	plt.savefig(filename, bbox_inches='tight')
 

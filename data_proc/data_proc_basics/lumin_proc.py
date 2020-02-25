@@ -73,6 +73,7 @@ def read_raw_Mind_Vision(filename):
 	#Constants.
 	width = 1280 #Длина кадра.
 	height = 960 #Ширина кадра.
+	writing_gain = 16 #Коэффициент, на которые нужно разделить данные для получения исходных значений.
 
 	#binary data file reading
 	with open(filename, "rb") as binary_file:
@@ -88,6 +89,7 @@ def read_raw_Mind_Vision(filename):
 		print("ERROR: could not read data file {}".format(filename))
 
 	data = np.reshape(data, (height, width))
+	data = data/writing_gain #Devide by 'gain' introduced by writing of the 12-bit image into 16 bit.
 
 	return(data, width, height)
 
@@ -323,6 +325,7 @@ def subtract_plane(data):
 	coords = np.vstack((X,Y,Z)).T #Массив с "правильной" (с т.зр. перемножения матриц) размерностью.
 
 	A, B, C = np.linalg.lstsq(coords, values, rcond=None)[0] #МНК
+	print(f'A = {A}, B = {B}, C = {C}')
 
 	I = np.arange(0, data.shape[1])
 	J = np.arange(0, data.shape[0])
@@ -407,7 +410,7 @@ def calc_bg_from_empty_frames(filenames_modes, ext, n_fon=20):
 	bg_count = 0
 	empty_filenames = []
 
-	print("Looking for 'empty' frames...")
+	print("\nLooking for 'empty' frames...")
 	with tqdm(total = len(filenames_modes)) as psbar:
 		for i, filename_mode in enumerate(filenames_modes):
 
