@@ -17,6 +17,8 @@ import struct
 import scipy.ndimage as ndimg
 import os
 
+from tqdm import tqdm
+
 def rotate(data, angle):
 	rot_data = ndimg.interpolation.rotate(input=data, angle=angle, order=0, prefilter=False, reshape=False)
 	return rot_data
@@ -87,6 +89,22 @@ def read_raw_Mind_Vision(filename):
 
 	data = np.reshape(data, (height, width))
 
+	return(data, width, height)
+
+def read_modes_basing_on_ext(filename_mode, ext):
+	'''
+	Function for read mode in dependence of file extension.
+	'''
+	if ext=='.RAW':
+		data, width, height = read_raw_Mind_Vision(filename_mode)
+	else:
+		#Обработка исключения в случае, если не удаётся прочитать .dat файл.
+		try:
+			data, width, height = read_dat(filename_mode)
+		except struct.error:
+			filepath = os.path.join(folder_modes, filename_mode)
+			print("Error while reading file {}.".format(filepath))
+			return(None)
 	return(data, width, height)
 
 def read_dat_float(filename):
@@ -314,3 +332,107 @@ def subtract_plane(data):
 	data = data - plane_data
 
 	return(data)
+
+def find_centre(input_array, xc_init, yc_init, crop_width, crop_height, eps=1.0, n_fon=20):
+	'''
+	Assess mass centre of the array. Returns centre coordinates as float values.
+	x correspond to the j (column) number of the array!
+	'''
+
+	data = np.copy(input_array) #Make an independent copy of the initial array.
+
+	x = xc_init; y = yc_init #Initial assumptions for x_centre and y_centre.
+	x_old = -10; y_old = -10 #Temporal values; should not concide with initial x and y values.
+
+	gr_len_x = int(round(crop_width/2.0)) #Half-width of the region to be cropped out.
+	gr_len_y = int(round(crop_height/2.0)) #Half-height of the region to be cropped out.
+
+	max_fon1 = np.amax(data[:n_fon,:n_fon])
+	max_fon2 = np.amax(data[-n_fon:,:n_fon])
+	max_fon3 = np.amax(data[:n_fon,-n_fon:])
+	max_fon4 = np.amax(data[-n_fon:,-n_fon:])
+
+	max_fon = np.amax((max_fon1, max_fon2, max_fon3, max_fon4))/(n_fon*n_fon)
+
+	for i in range(0, data.shape[0]-1):
+		for j in range(0, data.shape[1]-1):
+			if data[i,j] < (max_fon):
+				data[i,j] = 0
+			else:
+				data[i,j] = data[i,j] - max_fon
+
+	x = 10
+	while (abs(x - x_old) > eps) or (abs(y - y_old) > eps):
+		x_old = x
+		y_old = y
+		x = 0.0
+		y = 0.0
+		s = 0.0
+		if int(x_old)-gr_len_x >= 0:
+			j_min = int(x_old)-gr_len_x
+		else:
+			j_min = 0
+		if int(x_old)+gr_len_x <= data.shape[1]-1:
+			j_max = int(x_old)+gr_len_x
+		else:
+			j_max = data.shape[1]-1
+				
+		if int(y_old)-gr_len_y >= 0:
+			i_min = int(y_old)-gr_len_y
+		else:
+			i_min = 0
+		if int(y_old)+gr_len_y <= data.shape[0]-1:
+			i_max = int(y_old)+gr_len_y
+		else:
+			i_max = data.shape[0]-1
+				
+		for i in range(i_min, i_max):
+			for j in range(j_min, j_max):
+				x = x + j * data[i, j]
+				y = y + i * data[i, j]
+				s = s + data[i, j]
+		x = x/s
+		y = y/s
+	
+	return(int(round(x)),int(round(y)))
+
+def calc_bg_from_empty_frames(filenames_modes, ext, n_fon=20):
+	'''
+	Calculate average background based on 'empty' frames.
+	'''
+
+	data = read_modes_basing_on_ext(filenames_modes[0], ext)[0]
+
+	data_bg = np.zeros_like(data)
+	bg_count = 0
+	empty_filenames = []
+
+	print("Looking for 'empty' frames...")
+	with tqdm(total = len(filenames_modes)) as psbar:
+		for i, filename_mode in enumerate(filenames_modes):
+
+			#%%Читаем файл в зависимости от разширения.
+			data = read_modes_basing_on_ext(filename_mode, ext)[0]
+
+			#%%Считаем стандартное отклонение фона и данных.
+			fon_arr = np.hstack((data[:n_fon,:n_fon], data[-n_fon:,:n_fon], data[:n_fon,-n_fon:], data[-n_fon:,-n_fon:]))
+			fon_std = np.std(fon_arr)
+
+			frame_std = np.std(data)
+
+			if frame_std <= fon_std:
+				data_bg += data
+				bg_count += 1
+				empty_filenames.append(filename_mode)
+			
+			psbar.update(1) #Обновляем строку состояния.
+
+	if bg_count > 0:
+		print(f"{bg_count} 'empty' files have been found.") 
+		print("Empty filenames:")
+		print(empty_filenames)
+		data_bg = data_bg/bg_count
+		return(data_bg, bg_count)
+	else:
+		print("No 'empty' files")
+		return(None)
