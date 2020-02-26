@@ -56,6 +56,7 @@ def read_dat(filename):
 			print("Warning: 8bit image. Read with adjustment to 12bit format (magnified by 8).")
 		except:
 			print("ERROR: could not read data file {}".format(filename))
+
 	data = np.reshape(data, (height, width))
 
 	return(data, width, height)
@@ -325,7 +326,7 @@ def subtract_plane(data):
 	coords = np.vstack((X,Y,Z)).T #Массив с "правильной" (с т.зр. перемножения матриц) размерностью.
 
 	A, B, C = np.linalg.lstsq(coords, values, rcond=None)[0] #МНК
-	print(f'A = {A}, B = {B}, C = {C}')
+	print(f'Subtracted plane coefficients: A = {A}, B = {B}, C = {C}')
 
 	I = np.arange(0, data.shape[1])
 	J = np.arange(0, data.shape[0])
@@ -357,14 +358,9 @@ def find_centre(input_array, xc_init, yc_init, crop_width, crop_height, eps=1.0,
 
 	max_fon = np.amax((max_fon1, max_fon2, max_fon3, max_fon4))/(n_fon*n_fon)
 
-	for i in range(0, data.shape[0]-1):
-		for j in range(0, data.shape[1]-1):
-			if data[i,j] < (max_fon):
-				data[i,j] = 0
-			else:
-				data[i,j] = data[i,j] - max_fon
+	data = data-max_fon
+	data[data < 0] = 0
 
-	x = 10
 	while (abs(x - x_old) > eps) or (abs(y - y_old) > eps):
 		x_old = x
 		y_old = y
@@ -388,12 +384,13 @@ def find_centre(input_array, xc_init, yc_init, crop_width, crop_height, eps=1.0,
 			i_max = int(y_old)+gr_len_y
 		else:
 			i_max = data.shape[0]-1
-				
-		for i in range(i_min, i_max):
-			for j in range(j_min, j_max):
-				x = x + j * data[i, j]
-				y = y + i * data[i, j]
-				s = s + data[i, j]
+	
+		#%% Calculate mass centre coordinates.	
+		i = np.arange(i_min, i_max)
+		j = np.arange(j_min, j_max)
+		x = np.sum(j*np.sum(data[i_min:i_max,j_min:j_max], axis=0)) #y mass centre
+		y = np.sum(i*np.sum(data[i_min:i_max,j_min:j_max], axis=1)) #x mass centre. Axis = number of the axis, along which the sum is calculated.
+		s = np.sum(data[i_min:i_max,j_min:j_max])
 		x = x/s
 		y = y/s
 	
