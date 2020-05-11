@@ -14,8 +14,11 @@ import matplotlib.colors as mplc
 mpl.rcParams['agg.path.chunksize'] = 10000 #Enables large file plotting.
 mpl.rc('text', usetex=True)
 mpl.rcParams.update({'font.size': 20})
-mpl.rcParams['text.latex.preamble']=[r"\usepackage{amsmath}"]
-mpl.rcParams['text.latex.preamble'] = [r'\boldmath']
+mpl.rcParams['text.latex.preamble'] = [r'\usepackage[utf8]{inputenc}',
+			r'\usepackage[english,russian]{babel}',
+			r'\usepackage{amsmath}',
+			r'\boldmath']
+mpl.rc('font',**{'family':'sans-serif','sans-serif':['Computer Modern Sans Serif']})
 
 ### For bar plot. ###
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
@@ -65,7 +68,7 @@ def plot_heat_map(data, filename, v_min, v_max, dpi=300, log=False):
 
 	return True
 
-def plot_heat_map_latex(data, filename, v_min, v_max, dpi=300, log=False, scale=197.9):
+def plot_heat_map_latex(data, filename, v_min, v_max, dpi=300, log=False, scale=(197.9,197.9), aspect=None, extent=None, interpolation=None):
 	"""
 	Function plots heat maps of data numpy 2d array and save result to filename.png. The numbers along the axes are recalculated using 'scale' value.
 	
@@ -85,31 +88,33 @@ def plot_heat_map_latex(data, filename, v_min, v_max, dpi=300, log=False, scale=
 		pixels per mm of the image.
 	"""
 
-	plt.figure(figsize=(20.0*data.shape[1]/1920.0, 10*data.shape[0]/1200.0), dpi=dpi) #fig_size
-	plt.rcParams['text.latex.preamble'] = [r'\boldmath']
-	mpl.rcParams.update({'font.size': 22}) #fontsize
-	plt.xlabel(r'$x$, \textbf{mm}')
-	plt.ylabel(r'$y$, \textbf{mm}')
+	plt.figure(figsize=(20.0, 10.0), dpi=dpi) #fig_size
+	#plt.rcParams['text.latex.preamble'] = [r'\boldmath']
+	#mpl.rcParams.update({'font.size': 22}) #fontsize
+	plt.rc('font', family='bold', size=24)
+	plt.xlabel(r'\textbf{Длина волны, нм}', labelpad=9)
+	plt.ylabel(r'\textbf{Угол, мрад}')
 	plt.grid(False)
 	plt.minorticks_on()
 	plt.tick_params(axis='x', pad=7)
 	plt.tick_params(axis='y', pad=5)
 
-	extent = (0, data.shape[1]/scale, 0, data.shape[0]/scale)
+	if not extent:
+		extent = (0, data.shape[1]/scale[0], 0, data.shape[0]/scale[1])
 
 	if log==True:
-		plt.imshow(data, cmap='jet', vmin=v_min, vmax=v_max, norm=mplc.LogNorm(), extent=extent)
+		plt.imshow(data, cmap='jet', vmin=v_min, vmax=v_max, norm=mplc.LogNorm(), aspect=aspect, extent=extent, interpolation=interpolation)
 		#plt.plot((100,297), (100, 100), 'k', color='w')
 	else:
-		plt.imshow(data, cmap='jet', vmin=v_min, vmax=v_max, extent=extent)
-	plt.colorbar()
+		plt.imshow(data, cmap='jet', vmin=v_min, vmax=v_max, aspect=aspect, extent=extent, interpolation=interpolation)
+	plt.colorbar(pad=0.03)
 	plt.savefig(filename, bbox_inches='tight')
 
 	plt.close()
 
 	return True
 
-def plot_heat_map_bar_latex(data, filename, v_min, v_max, dpi=300, grad_num = 256, scale=(500/88.7), log=False):
+def plot_heat_map_bar_latex(data, filename, v_min, v_max, dpi=300, font_size = 22, bar_width = 10, bar_length = 500, grad_num = 256, scale=(500/88.7), log=False):
 	"""
 	Function plots heat maps of data numpy 2d array and save result to filename.png.
 	"""
@@ -120,13 +125,13 @@ def plot_heat_map_bar_latex(data, filename, v_min, v_max, dpi=300, grad_num = 25
 
 	x_phys_length = data.shape[1]*scale #physical length of x-axis
 	y_phys_length = data.shape[0]*scale #physical length of y-axis
-	bar_length = 500 #length of bar, micrometer
+	#bar_length = 500 #length of bar, micrometer
 	
-	fig, ax = plt.subplots(figsize=(20.0*data.shape[1]/1920.0, 10*data.shape[0]/1200.0), dpi=dpi)
+	fig, ax = plt.subplots(figsize=(20.0, 10.0), dpi=dpi)
 	#fig, ax = plt.subplots(figsize=(20.0*data.shape[1]/720.0, 10.0*data.shape[0]/480.0), dpi=300)
 	
 	plt.rcParams['text.latex.preamble'] = [r'\boldmath']
-	mpl.rcParams.update({'font.size': 22}) #fontsize
+	mpl.rcParams.update({'font.size': font_size}) #fontsize
 	#ax.set_xlabel(r'$x$, $\mu$\textbf{m}')
 	#ax.set_ylabel(r'$y$, $\mu$\textbf{m}')
 	#plt.minorticks_on()
@@ -140,8 +145,14 @@ def plot_heat_map_bar_latex(data, filename, v_min, v_max, dpi=300, grad_num = 25
 	####################################################################################
 	### barbarbar!!! ###
 	
-	bar_label = r'$' + str(bar_length) + r'\,\mu$' + r'\textbf{m}'
-	scalebar = AnchoredSizeBar(ax.transData, bar_length, bar_label, 'lower right', pad=0.5, sep=7.0, color='white', frameon=False, size_vertical=10, label_top=True)
+	if bar_length > 950:
+		bar_length_caption = f'{bar_length/1000.0:.0f}'
+		units = r'\textbf{mm}\normalsize'
+	else:
+		bar_length_caption = f'{bar_length:.0f}'
+		units = r'$\mu$' + r'\textbf{m}'
+	bar_label = r'$' + bar_length_caption + r'$\,' + units
+	scalebar = AnchoredSizeBar(ax.transData, bar_length, bar_label, 'lower right', pad=0.5, sep=7.0, color='white', frameon=False, size_vertical=bar_width, label_top=True)
 	ax.add_artist(scalebar)
 	
 	####################################################################################
@@ -152,7 +163,7 @@ def plot_heat_map_bar_latex(data, filename, v_min, v_max, dpi=300, grad_num = 25
 	else:
 		im = ax.imshow(data, cmap=cm, vmin=v_min, vmax=v_max, extent=extent)
 
-	fig.colorbar(im)
+	fig.colorbar(im, pad=0.03)
 	plt.savefig(filename, bbox_inches='tight')
 
 	plt.close()

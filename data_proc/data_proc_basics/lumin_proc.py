@@ -56,10 +56,13 @@ def read_dat(filename):
 			print("Warning: 8bit image. Read with adjustment to 12bit format (magnified by 8).")
 		except:
 			print("ERROR: could not read data file {}".format(filename))
+			return None
 
 	data = np.reshape(data, (height, width))
-
-	return(data, width, height)
+	if width < height:
+		return(data.T, height, width) #Transpose array and swap height and width.
+	else:
+		return(data, width, height)
 
 def read_raw_Mind_Vision(filename):
 	"""
@@ -88,6 +91,7 @@ def read_raw_Mind_Vision(filename):
 	except struct.error:
 		print("In data_proc/lumin_proc, in function 'read_raw_Mind_Vision':")
 		print("ERROR: could not read data file {}".format(filename))
+		return None
 
 	data = np.reshape(data, (height, width))
 	data = data/writing_gain #Devide by 'gain' introduced by writing of the 12-bit image into 16 bit.
@@ -100,14 +104,30 @@ def read_modes_basing_on_ext(filename_mode, ext):
 	'''
 	if ext=='.RAW':
 		data, width, height = read_raw_Mind_Vision(filename_mode)
-	else:
+	elif ext=='.dat':
 		#Обработка исключения в случае, если не удаётся прочитать .dat файл.
 		try:
 			data, width, height = read_dat(filename_mode)
-		except struct.error:
-			filepath = os.path.join(folder_modes, filename_mode)
-			print("Error while reading file {}.".format(filepath))
+		except (TypeError, struct.error):
+			print("Error while reading file {}.".format(filename_mode))
 			return(None)
+	elif ext=='.txt':
+		try:
+			data = np.loadtxt(filename_mode)
+			height, width = data.shape
+		except ValueError:
+			print("Error while reading file {}.".format(filename_mode))
+			return(None)
+	elif ext=='.npy':
+		data=np.load(filename_mode)
+		height, width = data.shape
+	elif ext=='.png':
+		data = plt.imread(filename)
+		height, width = data.shape
+	else:
+		print("In data_proc, in file lumin_proc, in function read_modes_basing_on_ext:")
+		print(f'ERROR: unknown extension {ext}')
+		return(None)
 	return(data, width, height)
 
 def read_dat_float(filename):
@@ -184,6 +204,8 @@ def read_bd_map(bd_map_file):
 	single_start_num = lines.index("Separate hot spots\n")
 	bd_mult = np.genfromtxt(bd_map_file, skip_header=1, max_rows=single_start_num-1, dtype = 'uint16')
 	bd_single = np.genfromtxt(bd_map_file, skip_header=single_start_num+1, dtype = 'uint16')
+	if len(bd_single.shape) == 1:
+		bd_single.reshape(bd_single.shape[0],-1)
 	print("Bd map has been successfully read.")
 
 	return (bd_mult, bd_single)
@@ -262,22 +284,18 @@ def find_limits(data, method='simple', add_sigma = None):
 	'''
 	#Константы
 	width = 3
+	threshold_multiplier = 1.5
 	if method=='simple':
 		v_max = np.amax(data)
 	elif method=='good':
 		#Максимальное среднее по квадрату 3x3.
-		y_rest = data.shape[0] % width
-		x_rest = data.shape[1] % width
-		wv = int(round(width-1)/2)
-		wv_1 = wv+1
-		ws = width*width
-		curr_max = 0.0; new_max = 0.0
-		for i in range(wv, data.shape[0]-wv, width):
-			for j in range(wv, data.shape[1]-wv, width):
-				new_max = np.sum(data[i-wv:i+wv_1,j-wv:j+wv_1])/ws
-				if new_max > curr_max:
-					curr_max = new_max
-		v_max = curr_max
+		v_max = np.amax(ndimg.median_filter(data, size=width))
+	elif method=='clever':
+		i,j = np.argmax(data)
+		if data[i-1:i+2,j-1:j+2] > threshold_multiplier*data[i-1:i+2,j-1:j+2]:
+			v_max = np.amax(ndimg.median_filter(data, size=width))
+		else:
+			v_max = np.amax(data)
 	else:
 		print("ERROR: in find_limits (lumin_proc.py) - unknown keyword for scale maxima search")
 		return False
@@ -337,29 +355,13 @@ def subtract_plane(data):
 
 	return(data)
 
-def find_centre(input_array, xc_init, yc_init, crop_width, crop_height, eps=1.0, n_fon=20):
+def find_centre_cycle(data, x, y, gr_len_x, gr_len_y, eps):
 	'''
-	Assess mass centre of the array. Returns centre coordinates as float values.
-	x correspond to the j (column) number of the array!
+	Cycle for find_centre function.
+	!!! Function CHANGES input array (data). !!! 
 	'''
 
-	data = np.copy(input_array) #Make an independent copy of the initial array.
-
-	x = xc_init; y = yc_init #Initial assumptions for x_centre and y_centre.
 	x_old = -10; y_old = -10 #Temporal values; should not concide with initial x and y values.
-
-	gr_len_x = int(round(crop_width/2.0)) #Half-width of the region to be cropped out.
-	gr_len_y = int(round(crop_height/2.0)) #Half-height of the region to be cropped out.
-
-	max_fon1 = np.amax(data[:n_fon,:n_fon])
-	max_fon2 = np.amax(data[-n_fon:,:n_fon])
-	max_fon3 = np.amax(data[:n_fon,-n_fon:])
-	max_fon4 = np.amax(data[-n_fon:,-n_fon:])
-
-	max_fon = np.amax((max_fon1, max_fon2, max_fon3, max_fon4))/(n_fon*n_fon)
-
-	data = data-max_fon
-	data[data < 0] = 0
 
 	while (abs(x - x_old) > eps) or (abs(y - y_old) > eps):
 		x_old = x
@@ -384,15 +386,46 @@ def find_centre(input_array, xc_init, yc_init, crop_width, crop_height, eps=1.0,
 			i_max = int(y_old)+gr_len_y
 		else:
 			i_max = data.shape[0]-1
-	
+		
 		#%% Calculate mass centre coordinates.	
 		i = np.arange(i_min, i_max)
 		j = np.arange(j_min, j_max)
 		x = np.sum(j*np.sum(data[i_min:i_max,j_min:j_max], axis=0)) #y mass centre
 		y = np.sum(i*np.sum(data[i_min:i_max,j_min:j_max], axis=1)) #x mass centre. Axis = number of the axis, along which the sum is calculated.
 		s = np.sum(data[i_min:i_max,j_min:j_max])
+
 		x = x/s
 		y = y/s
+	
+	return x, y
+
+
+def find_centre(input_array, xc_init, yc_init, crop_width, crop_height, eps=1.0, n_fon=20):
+	'''
+	Assess mass centre of the array. Returns centre coordinates as float values.
+	x correspond to the j (column) number of the array!
+	'''
+
+	data = np.copy(input_array) #Make an independent copy of the initial array.
+
+	x = xc_init; y = yc_init #Initial assumptions for x_centre and y_centre.
+	#x_old = -10; y_old = -10 #Temporal values; should not concide with initial x and y values.
+
+	gr_len_x = int(round(crop_width/2.0)) #Half-width of the region to be cropped out.
+	gr_len_y = int(round(crop_height/2.0)) #Half-height of the region to be cropped out.
+
+	max_fon1 = np.amax(data[:n_fon,:n_fon])
+	max_fon2 = np.amax(data[-n_fon:,:n_fon])
+	max_fon3 = np.amax(data[:n_fon,-n_fon:])
+	max_fon4 = np.amax(data[-n_fon:,-n_fon:])
+
+	max_fon = np.amax((max_fon1, max_fon2, max_fon3, max_fon4))
+	
+	if np.amax(data) > max_fon:
+		data = data-max_fon
+		data[data < 0] = 0
+
+	x,y = find_centre_cycle(data, x, y, gr_len_x, gr_len_y, eps)
 	
 	return(int(round(x)),int(round(y)))
 

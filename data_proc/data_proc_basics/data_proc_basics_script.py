@@ -106,6 +106,8 @@ def calc_lum_time(string):
 		string_splitted, ms = string.split(",")
 	elif '.' in string:
 		string_splitted, ms = string.split(".")
+	elif string.isdecimal():
+		return(int(string))
 	else:
 		print("ERROR: invalid string in calc_lum_time.\nString: \"{}\"".format(string))
 		raise TypeError("Invalid string in calc_lum_time.\nString: \"{}\"".format(string))
@@ -215,10 +217,13 @@ def read_maxima(folder_ac, filenames_ac_times, filenames_ac_info, ext = '.bin', 
 			elif ac_lims is None:
 				max_pos = [indent, len(wf)]
 			else:
+				if ac_lims[1]/dt > len(wf):
+					print("\nWARNING: ac_lims exceeds waveform length!\n")
 				max_pos = [int(round(ac_lims[0]/dt)), min(int(round(ac_lims[1]/dt)), len(wf))]
 			wf = wf[max_pos[0]:max_pos[1]]
-			for av_par in av_params:
-				wf = run_av(wf, window = av_par)
+			if use_run_av:
+				for av_par in av_params:
+					wf = run_av(wf, window = av_par)
 			if inv:
 				maxima[i] = np.amin(wf)
 			else:
@@ -227,24 +232,28 @@ def read_maxima(folder_ac, filenames_ac_times, filenames_ac_info, ext = '.bin', 
 		for i in range(0,len(filenames_ac_times)):
 			data = plt.imread(os.path.join(folder_ac, "__".join(filenames_ac_info[i]) + ext))
 			maxima[i] = np.amax(data)
-	elif ext == '.dat' or ext == '.png':
+	elif ext == '.RAW':
 		for i in range(0,len(filenames_ac_times)):
-			filename = os.path.join(folder_ac, "__".join(filenames_ac_info[i]) + ext)
-			if ext == '.dat':
-				try:
-					data, width, height = read_dat(filename)
-				except struct.error:
-					print("Struct error while reading file {}.".format(filename))
-					continue
+			filename = os.path.join(folder_ac, "-".join(filenames_ac_info[i]) + ext)
+			data_info = read_modes_basing_on_ext(filename, ext)
+			if not data_info:
+				continue
 			else:
-				data = plt.imread(filename)
-			fon = (np.mean(data[0:fon_size, 0:fon_size]) + np.mean(data[0:fon_size, -fon_size:]) + np.mean(data[-fon_size:, 0:fon_size]) + np.mean(data[-fon_size:, -fon_size:]))/4.0
-			data = data[area[2]:area[3], area[0]:area[1]]
-			data = data-fon_coeff*fon
-			#data = data[data > fon_coeff*fon] 
-			data = data[data < max_level]
+				data, width, height = data_info
+			data = subtract_plane(data)
 			maxima[i] = np.sum(data)
-			#print("fon={}, maxima[i]={}".format(fon, maxima[i]))
+	elif ext == '.dat' or ext == '.txt' or ext == '.png':
+		for i in range(0,len(filenames_ac_times)):			
+			filename = os.path.join(folder_ac, "__".join(filenames_ac_info[i]) + ext)
+			data_info = read_modes_basing_on_ext(filename, ext)
+			if not data_info:
+				continue
+			else:
+				data, width, height = data_info
+			data = subtract_plane(data)
+			maxima[i] = np.sum(data)
+	else:
+		print("ERROR in function read_maxima: unknown file type")
 	return(maxima)
 
 #%% Формирование списка файлов с акустикой/люминисценцией/интерферометрией.
@@ -262,7 +271,7 @@ def make_file_list_to_compare(foldername_ac, ext):
 	time_restart_constant = 100e3 # Величина разрыва, при котором считается, что время обнулилось, и акустика начала писаться заново.
 	max_time_constant = 3600e3 #1 час - время, после которого происходит обнуление счётчика.
 
-	if (ext != '.dat') and (ext != '.png') and (ext != '.bin') and (ext != '.tif'):
+	if (ext != '.dat') and (ext != '.png') and (ext != '.bin') and (ext != '.tif') and (ext != '.RAW'):
 		print('In module "data_proc_basics", function "make_file_list_to_compare":')
 		print("ERROR: unknown data type!")
 		return(1)
@@ -271,15 +280,20 @@ def make_file_list_to_compare(foldername_ac, ext):
 		filenames_ac = [f for f in os.listdir(foldername_ac) if (f.endswith(ext) and "fil" in f)]
 	elif ext == '.png':
 		filenames_ac = [f for f in os.listdir(foldername_ac) if f.endswith(ext) and '__' in f]
+	elif ext == '.RAW':
+		filenames_ac = [f for f in os.listdir(foldername_ac) if f.endswith(ext) and 'MV-UB130GM' in f]
 	else:
 		filenames_ac = [f for f in os.listdir(foldername_ac) if f.endswith(ext)]
 	# Если папка пустая, сразу возвращаем пустые списки (поиск скачка даёт ошибку при пустых списках).
 	if filenames_ac == []:
 		print("Acoustcs folder is empty.")
 		return ([],[])
-	filenames_ac_info = [f.split(ext)[0].split("__") for f in filenames_ac]
+	if ext == '.RAW':
+		filenames_ac_info = [f.split(ext)[0].split("-") for f in filenames_ac]
+	else:
+		filenames_ac_info = [f.split(ext)[0].split("__") for f in filenames_ac]
 	filenames_ac_info_ext = []
-	if (ext == '.dat') or (ext == '.tif') or (ext == '.png'):
+	if (ext == '.dat') or (ext == '.tif') or (ext == '.png') or (ext == '.RAW'):
 		for f in filenames_ac_info:
 			time = calc_lum_time(f[-1])
 			filenames_ac_info_ext.append([time, f])
@@ -312,8 +326,8 @@ def make_file_list_to_compare_new_program(foldername_ac, ext):
 		ext. Allowed values: '.dat', '.bin', '.tif'. In any other case the function returns 1.
 	'''
 
-	if (ext != '.dat') and (ext != '.png') and (ext != '.bin') and (ext != '.tif'):
-		print('In module "data_proc_basics", function "make_file_list_to_compare":')
+	if (ext != '.dat') and (ext != '.png') and (ext != '.RAW') and (ext != '.bin') and (ext != '.tif'):
+		print('In module "data_proc_basics", function "make_file_list_to_compare_new_program":')
 		print("ERROR: unknown data type!")
 		return(1)
 	#Формирование несортированного списка файлов с акустикой.
@@ -321,19 +335,27 @@ def make_file_list_to_compare_new_program(foldername_ac, ext):
 		filenames_ac = [f for f in os.listdir(foldername_ac) if (f.endswith(ext) and "fil" in f)]
 	elif ext == '.png':
 		filenames_ac = [f for f in os.listdir(foldername_ac) if f.endswith(ext) and '__' in f]
+	elif ext == '.RAW':
+		filenames_ac = [f for f in os.listdir(foldername_ac) if f.endswith(ext) and 'MV-UB130GM' in f]
 	else:
 		filenames_ac = [f for f in os.listdir(foldername_ac) if f.endswith(ext)]
 	# Если папка пустая, сразу возвращаем пустые списки (поиск скачка даёт ошибку при пустых списках).
 	if filenames_ac == []:
 		print("Acoustcs folder is empty.")
 		return ([],[])
-	filenames_ac_info = [f.split(ext)[0].split("__") for f in filenames_ac]
+	if ext == '.RAW':
+		filenames_ac_info = [f.split(ext)[0].split("-") for f in filenames_ac]
+	else:
+		filenames_ac_info = [f.split(ext)[0].split("__") for f in filenames_ac]
 	filenames_ac_info_ext = []
 
 	for f in filenames_ac_info:
-		for segment in f:
-			if ('.' in segment or ',' in segment) and '-' in segment:
-				break
+		if ext == '.RAW':
+			segment = f[-1]
+		else:
+			for segment in f:
+				if ('.' in segment or ',' in segment) and '-' in segment:
+					break
 		time = calc_lum_time(segment)
 		filenames_ac_info_ext.append([time, f])
 	filenames_ac_info_ext = sorted(filenames_ac_info_ext, key = lambda x: float(x[0])) #Cортированный по первому элементу названия (времени в мс) список файлов с акустикой.
@@ -367,10 +389,12 @@ def read_en_all_data(filename_en, line_length=17, col_en=9, col_fon=8, col_trig=
 	lc = int(round(len(file_data_words)/line_length))
 
 	if lc == 0:
-		print("File with energies is empty.")
+		print("\n WARNING: File with energies is empty.\n")
+		raise EmptyEnFile
 		return(None)
 	elif lc <= 2:
-		print("Energy file contains less than 3 entries.")
+		print("\n WARNING: Energy file contains less than 3 entries.\n")
+		raise EmptyEnFile
 		return(None)
 
 	# Инициализация массивов с времена
