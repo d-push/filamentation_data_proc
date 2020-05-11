@@ -164,8 +164,12 @@ def compare(filename_en, foldername_ac, folder_to_write, ext='.bin', col_en=9, c
 
 		#Проверка на пропущенные стробы в энергиях и акустике.
 		if delta_time_en < EPS_TIME_EN and delta_time_ac < EPS_TIME_AC:
-			filename_ac_new = os.path.join(folder_to_write, str(energies[i+1]) + "_" + str(i+1) + "_" + "__".join(filenames_ac_info[j]) + ext)
-			filename_ac = os.path.join(foldername_ac, "__".join(filenames_ac_info[j])+ext)
+			if ext=='.RAW':
+				filename_ac_new = os.path.join(folder_to_write, str(energies[i+1]) + "_" + str(i+1) + "_" + "-".join(filenames_ac_info[j]) + ext)
+				filename_ac = os.path.join(foldername_ac, "-".join(filenames_ac_info[j])+ext)
+			else:
+				filename_ac_new = os.path.join(folder_to_write, str(energies[i+1]) + "_" + str(i+1) + "_" + "__".join(filenames_ac_info[j]) + ext)
+				filename_ac = os.path.join(foldername_ac, "__".join(filenames_ac_info[j])+ext)
 			sh.copyfile(filename_ac, filename_ac_new)
 			i += 1; j += 1
 		elif delta_time_ac >= EPS_TIME_AC and delta_time_en < EPS_TIME_EN:
@@ -188,7 +192,10 @@ def compare(filename_en, foldername_ac, folder_to_write, ext='.bin', col_en=9, c
 					if abs(filenames_ac_times[j_new+N_ac_try-1] - filenames_ac_times[j_new-1] - dt*n_ac_try*1000) < EPS_TIME_AC:
 						if abs(time_en[i+(j_new-j)+n_ac_try] - time_en[i+(j_new-j)] - dt*n_ac_try) < EPS_TIME_EN_1:
 							i = i-1+(j_new-j)+n_ac_try; j = j_new + N_ac_try-1
-							filename_ac_new = os.path.join(folder_to_write, str(energies[i+1]) + "_" + str(i+1) + "_" + "__".join(filenames_ac_info[j]) + ext)
+							if ext=='.RAW':
+								filename_ac_new = os.path.join(folder_to_write, str(energies[i+1]) + "_" + str(i+1) + "_" + "-".join(filenames_ac_info[j]) + ext)
+							else:
+								filename_ac_new = os.path.join(folder_to_write, str(energies[i+1]) + "_" + str(i+1) + "_" + "__".join(filenames_ac_info[j]) + ext)
 							sh.copyfile(filename_ac, filename_ac_new)
 							print("Acoustics has been successfully corrected. {} acoustic files has been skipped".format(N_ac_try-1))
 							success = True
@@ -200,7 +207,10 @@ def compare(filename_en, foldername_ac, folder_to_write, ext='.bin', col_en=9, c
 							while (n_en_try < 2*n_ac_try) and (i + (j_new-j) + n_en_try < len(time_en)):
 								if abs(time_en[i+(j_new-j)+n_en_try] - time_en[i+(j_new-j)] - dt*n_ac_try) < EPS_TIME_EN_1:
 									i = i-1+(j_new-j)+n_ac_try; j = j_new + N_ac_try-1
-									filename_ac_new = os.path.join(folder_to_write, str(energies[i+1]) + "_" + str(i+1) + "_" + "__".join(filenames_ac_info[j]) + ext)
+									if ext=='.RAW':
+										filename_ac_new = os.path.join(folder_to_write, str(energies[i+1]) + "_" + str(i+1) + "_" + "-".join(filenames_ac_info[j]) + ext)
+									else:
+										filename_ac_new = os.path.join(folder_to_write, str(energies[i+1]) + "_" + str(i+1) + "_" + "__".join(filenames_ac_info[j]) + ext)
 									sh.copyfile(filename_ac, filename_ac_new)
 									print("Acoustics has been successfully corrected. {} acoustic files has been skipped".format(N_ac_try-1))
 									print("Energy has been successfully corrected.")
@@ -221,7 +231,10 @@ def compare(filename_en, foldername_ac, folder_to_write, ext='.bin', col_en=9, c
 			if not success:
 				print("WARNING: acoustics has NOT been successfully corrected!")
 				print(foldername_ac)
-				print("filename_ac_j = {}".format("__".join(filenames_ac_info[j])))
+				if ext=='.RAW':
+					print("filename_ac_j = {}".format("-".join(filenames_ac_info[j])))
+				else:
+					print("filename_ac_j = {}".format("__".join(filenames_ac_info[j])))
 				break
 		else:
 			print("WARNING: suspicious energy time behavior.")
@@ -233,8 +246,12 @@ def compare(filename_en, foldername_ac, folder_to_write, ext='.bin', col_en=9, c
 					# i_1, j_1 - cчётчики кадров для энергии и акустики для внутреннего цикла
 					for i_1 in range(i,i+N_try-1):
 						if j<len(filenames_ac_info):
-							filename_ac_new = os.path.join(folder_to_write, str(energies[i+1]) + "_" + str(i+1) + "_" + "__".join(filenames_ac_info[j]) + ext)
-							filename_ac = os.path.join(foldername_ac, "__".join(filenames_ac_info[j]) + ext)
+							if ext=='.RAW':
+								filename_ac_new = os.path.join(folder_to_write, str(energies[i+1]) + "_" + str(i+1) + "_" + "-".join(filenames_ac_info[j]) + ext)
+								filename_ac = os.path.join(foldername_ac, "-".join(filenames_ac_info[j]) + ext)
+							else:
+								filename_ac_new = os.path.join(folder_to_write, str(energies[i+1]) + "_" + str(i+1) + "_" + "__".join(filenames_ac_info[j]) + ext)
+								filename_ac = os.path.join(foldername_ac, "__".join(filenames_ac_info[j]) + ext)
 							sh.copyfile(filename_ac, filename_ac_new)
 							i += 1
 							j += 1
@@ -316,8 +333,12 @@ def compare_new_method(filename_en, foldername_ac, folder_to_write, ext='.bin', 
 			#if i==1 and j in range(0,3):
 				#print("!!! i={}, j={}, time_en_new[i] = {}, time_ac_new[j]={}, abs={}".format(i, j, time_en_new[i], time_ac_new[j],abs(time_en_new[i]-time_ac_new[j])))
 			if abs(time_en_new[i]-time_ac_new[j]) < DELTA:
-				filename_ac_new = os.path.join(folder_to_write, str(energies[i+shift_i]) + "_" + str(i+shift_i) + "_" + "__".join(filenames_ac_info[j+shift_j]) + ext)
-				filename_ac = os.path.join(foldername_ac, "__".join(filenames_ac_info[j+shift_j]) + ext)
+				if ext=='.RAW':
+					filename_ac_new = os.path.join(folder_to_write, str(energies[i+shift_i]) + "_" + str(i+shift_i) + "_" + "-".join(filenames_ac_info[j+shift_j]) + ext)
+					filename_ac = os.path.join(foldername_ac, "-".join(filenames_ac_info[j+shift_j]) + ext)
+				else:
+					filename_ac_new = os.path.join(folder_to_write, str(energies[i+shift_i]) + "_" + str(i+shift_i) + "_" + "__".join(filenames_ac_info[j+shift_j]) + ext)
+					filename_ac = os.path.join(foldername_ac, "__".join(filenames_ac_info[j+shift_j]) + ext)
 				sh.copyfile(filename_ac, filename_ac_new)
 				start_ac_count = j
 				break
@@ -423,7 +444,10 @@ def compare_not_save(filename_en, foldername_ac, ext='.bin', shift = 0, col_en=9
 			if not success:
 				print("WARNING: acoustics has NOT been successfully corrected!")
 				print(foldername_ac)
-				print("filename_ac_j = {}".format("__".join(filenames_ac_info[j])))
+				if ext=='.RAW':
+					print("filename_ac_j = {}".format("-".join(filenames_ac_info[j])))
+				else:
+					print("filename_ac_j = {}".format("__".join(filenames_ac_info[j])))
 				print("{} files left.".format(len(filenames_ac_info) - j - 1))
 				break
 		else:
@@ -630,8 +654,12 @@ def compare_no_lost(filename_en, foldername_ac, folder_to_write, ext='.bin', shi
 	time_ac_new = time_ac_new[time_ac_new > -is_zero_int]
 
 	for i in range(0, min(len(time_en_new), len(time_ac_new))):
-		filename_ac_new = os.path.join(folder_to_write, str(energies[i+shift_i]) + "_" + str(i+shift_i) + "_" + "__".join(filenames_ac_info[i+shift_j]) + ext)
-		filename_ac = os.path.join(foldername_ac, "__".join(filenames_ac_info[i+shift_j]) + ext)
+		if ext=='.RAW':
+			filename_ac_new = os.path.join(folder_to_write, str(energies[i+shift_i]) + "_" + str(i+shift_i) + "_" + "-".join(filenames_ac_info[i+shift_j]) + ext)
+			filename_ac = os.path.join(foldername_ac, "-".join(filenames_ac_info[i+shift_j]) + ext)
+		else:
+			filename_ac_new = os.path.join(folder_to_write, str(energies[i+shift_i]) + "_" + str(i+shift_i) + "_" + "__".join(filenames_ac_info[i+shift_j]) + ext)
+			filename_ac = os.path.join(foldername_ac, "__".join(filenames_ac_info[i+shift_j]) + ext)
 		sh.copyfile(filename_ac, filename_ac_new)
 
 	return("OK")
@@ -655,7 +683,7 @@ def compare_not_save_same_computer(filename_en, foldername_ac, ext='.bin', col_e
 			filenames_ac_times, filenames_ac_info = dpb.make_file_list_to_compare(foldername_ac, ext)
 	if len(filenames_ac_times) == 0: #Если папка с акустикой пуста, сразу завершаем выполнение функции.
 		return("Empty")
-	
+
 	time_en = time_en*1000.0
 	calibration = np.zeros((min(len(time_en), len(filenames_ac_times)), 2))
 	k = 0
@@ -693,8 +721,12 @@ def compare_same_computer(filename_en, foldername_ac, folder_to_write, ext='.bin
 	for i in range(0, len(time_en)):
 		for j in range(0, len(filenames_ac_times)):
 			if abs(time_en[i] - filenames_ac_times[j]) < DELTA:
-				filename_ac_new = os.path.join(folder_to_write, str(energies[i]) + "_" + str(i) + "_" + "__".join(filenames_ac_info[j]) + ext)
-				filename_ac = os.path.join(foldername_ac, "__".join(filenames_ac_info[j]) + ext)
+				if ext=='.RAW':
+					filename_ac_new = os.path.join(folder_to_write, str(energies[i]) + "_" + str(i) + "_" + "-".join(filenames_ac_info[j]) + ext)
+					filename_ac = os.path.join(foldername_ac, "-".join(filenames_ac_info[j]) + ext)
+				else:
+					filename_ac_new = os.path.join(folder_to_write, str(energies[i]) + "_" + str(i) + "_" + "__".join(filenames_ac_info[j]) + ext)
+					filename_ac = os.path.join(foldername_ac, "__".join(filenames_ac_info[j]) + ext)
 				sh.copyfile(filename_ac, filename_ac_new)
 				break
 
