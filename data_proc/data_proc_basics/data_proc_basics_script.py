@@ -186,7 +186,7 @@ def max_find_borders(wf, dt):
 
 	return((left_border, right_border))
 
-def read_maxima(folder_ac, filenames_ac_times, filenames_ac_info, ext = '.bin', area=(0,1920,0,1200), fon_coeff=1.0, old_osc=False, limit_max=False, inv=False, ac_lims=None, use_run_av=False, av_params=(11,20)):
+def read_maxima(folder_ac, filenames_ac_times, filenames_ac_info, ext, bd_mult, bd_single, area=(0,1920,0,1200), fon_coeff=1.0, old_osc=False, limit_max=False, inv=False, ac_lims=None, use_run_av=False, av_params=(11,20), bg_from_empty=None, subtr_plane=False):
 
 	'''
 	Функция вычисляет максимум для файлов типа .tif (интерферограммы) и интеграл по площади для файлов типа '.dat' (люминесценция).
@@ -228,10 +228,10 @@ def read_maxima(folder_ac, filenames_ac_times, filenames_ac_info, ext = '.bin', 
 				maxima[i] = np.amin(wf)
 			else:
 				maxima[i] = np.amax(wf)
-	elif ext == '.tif':
-		for i in range(0,len(filenames_ac_times)):
-			data = plt.imread(os.path.join(folder_ac, "__".join(filenames_ac_info[i]) + ext))
-			maxima[i] = np.amax(data)
+	#elif ext == '.tif':
+	#	for i in range(0,len(filenames_ac_times)):
+	#		data = plt.imread(os.path.join(folder_ac, "__".join(filenames_ac_info[i]) + ext))
+	#		maxima[i] = np.amax(data)
 	elif ext == '.RAW':
 		for i in range(0,len(filenames_ac_times)):
 			filename = os.path.join(folder_ac, "-".join(filenames_ac_info[i]) + ext)
@@ -240,9 +240,13 @@ def read_maxima(folder_ac, filenames_ac_times, filenames_ac_info, ext = '.bin', 
 				continue
 			else:
 				data, width, height = data_info
+			if bd_mult and bd_single:
+				data = apply_bd_map(data, bd_mult, bd_single)
 			data = subtract_plane(data)
+			if bg_from_empty is not None:
+				data = data - bg_from_empty
 			maxima[i] = np.sum(data)
-	elif ext == '.dat' or ext == '.txt' or ext == '.png':
+	elif ext == '.dat' or ext == '.txt' or ext == '.png' or ext == '.tif':
 		for i in range(0,len(filenames_ac_times)):			
 			filename = os.path.join(folder_ac, "__".join(filenames_ac_info[i]) + ext)
 			data_info = read_modes_basing_on_ext(filename, ext)
@@ -250,7 +254,11 @@ def read_maxima(folder_ac, filenames_ac_times, filenames_ac_info, ext = '.bin', 
 				continue
 			else:
 				data, width, height = data_info
+			if len(bd_mult) and len(bd_single):
+				data = apply_bd_map(data, bd_mult, bd_single)
 			data = subtract_plane(data)
+			if bg_from_empty is not None:
+				data = data - bg_from_empty
 			maxima[i] = np.sum(data)
 	else:
 		print("ERROR in function read_maxima: unknown file type")

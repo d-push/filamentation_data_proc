@@ -15,7 +15,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import struct
 import scipy.ndimage as ndimg
-import os
+import os, glob
 
 from tqdm import tqdm
 
@@ -52,8 +52,8 @@ def read_dat(filename):
 		try:
 			s = '>B'+'B'*(height*width - 1)
 			data = np.fromiter(struct.unpack(s, data_bin[8:]), dtype='uint8')
-			data = data*8
-			print("Warning: 8bit image. Read with adjustment to 12bit format (magnified by 8).")
+			#data = data*8
+			#print("Warning: 8bit image. Read with adjustment to 12bit format (magnified by 8).")
 		except:
 			print("ERROR: could not read data file {}".format(filename))
 			return None
@@ -116,14 +116,23 @@ def read_modes_basing_on_ext(filename_mode, ext):
 			data = np.loadtxt(filename_mode)
 			height, width = data.shape
 		except ValueError:
-			print("Error while reading file {}.".format(filename_mode))
-			return(None)
+			try:
+				data = np.loadtxt(filename_mode, skiprows=1)
+				data = data[:,1:]
+				height, width = data.shape
+			except ValueError:
+				print("Error while reading file {}.".format(filename_mode))
+				return(None)
 	elif ext=='.npy':
 		data=np.load(filename_mode)
 		height, width = data.shape
-	elif ext=='.png':
-		data = plt.imread(filename)
-		height, width = data.shape
+	elif ext=='.png' or ext=='.tif':
+		try:
+			data = plt.imread(filename_mode)
+			height, width = data.shape
+		except OSError:
+			print("Error while reading file {}.".format(filename_mode))
+			return(None)
 	else:
 		print("In data_proc, in file lumin_proc, in function read_modes_basing_on_ext:")
 		print(f'ERROR: unknown extension {ext}')
@@ -234,9 +243,14 @@ def apply_bd_map(data, bd_mult, bd_single):
 					k1 -= 1
 				j_bottum = int(bd_mult[k1+1,0])-1 #Ближайшая непробитая точка снизу.
 				# Коэффициенты линейной аппроксимации.
-				A = (float(data[j_top,i]) - float(data[j_bottum,i]))/(float(j_top) - float(j_bottum))
-				B = float(data[j_bottum,i]) - A*j_bottum
-				data[j_bottum+1:j_top,i] = np.around(A*np.arange(j_bottum+1, j_top)+B)
+				if j_top >= bd_mult.shape[0]: #Пробой на верхнем краю ПЗС.
+					data[j_bottum:j_top,i] = np.around(np.ones(j_top - j_bottum)*np.mean(data[j_bottum-1:j_bottum-4,i]))
+				elif j_bottum <= 0:
+					data[j_bottum+1:j_top+1,i] = np.around(np.ones(j_top - j_bottum)*np.mean(data[j_top+1:j_top+4,i]))
+				else:
+					A = (float(data[j_top,i]) - float(data[j_bottum,i]))/(float(j_top) - float(j_bottum))
+					B = float(data[j_bottum,i]) - A*j_bottum
+					data[j_bottum+1:j_top,i] = np.around(A*np.arange(j_bottum+1, j_top)+B)
 
 	#Для одиночных пробоев.
 	if bd_single.size != 0:
@@ -280,7 +294,7 @@ def find_limits(data, method='simple', add_sigma = None):
 		Max search algorithm: 'simple' - to pick up an absolute maximum of the array, 'good' - to use maximum average of 9 pixel square.
 	add_sigma : float
 		A number of sigma added for background value for v_min. None - use v_min as is. v_min is searched as average of four 20x20-pixel squares at the array angles.
-	
+
 	'''
 	#Константы
 	width = 3
@@ -308,7 +322,7 @@ def find_limits(data, method='simple', add_sigma = None):
 
 	return (v_min, v_max)
 
-def subtract_plane(data):
+def subtract_plane(data, quite=False):
 	'''
 	Function subtracts an inclined plane from data background.
 	'''
@@ -344,7 +358,8 @@ def subtract_plane(data):
 	coords = np.vstack((X,Y,Z)).T #Массив с "правильной" (с т.зр. перемножения матриц) размерностью.
 
 	A, B, C = np.linalg.lstsq(coords, values, rcond=None)[0] #МНК
-	print(f'Subtracted plane coefficients: A = {A}, B = {B}, C = {C}')
+	if not quite:
+		print(f'Subtracted plane coefficients: A = {A}, B = {B}, C = {C}')
 
 	I = np.arange(0, data.shape[1])
 	J = np.arange(0, data.shape[0])
@@ -358,7 +373,7 @@ def subtract_plane(data):
 def find_centre_cycle(data, x, y, gr_len_x, gr_len_y, eps):
 	'''
 	Cycle for find_centre function.
-	!!! Function CHANGES input array (data). !!! 
+	!!! Function CHANGES input array (data). !!!
 	'''
 
 	x_old = -10; y_old = -10 #Temporal values; should not concide with initial x and y values.
@@ -377,7 +392,7 @@ def find_centre_cycle(data, x, y, gr_len_x, gr_len_y, eps):
 			j_max = int(x_old)+gr_len_x
 		else:
 			j_max = data.shape[1]-1
-				
+
 		if int(y_old)-gr_len_y >= 0:
 			i_min = int(y_old)-gr_len_y
 		else:
@@ -386,8 +401,8 @@ def find_centre_cycle(data, x, y, gr_len_x, gr_len_y, eps):
 			i_max = int(y_old)+gr_len_y
 		else:
 			i_max = data.shape[0]-1
-		
-		#%% Calculate mass centre coordinates.	
+
+		#%% Calculate mass centre coordinates.
 		i = np.arange(i_min, i_max)
 		j = np.arange(j_min, j_max)
 		x = np.sum(j*np.sum(data[i_min:i_max,j_min:j_max], axis=0)) #y mass centre
@@ -396,7 +411,7 @@ def find_centre_cycle(data, x, y, gr_len_x, gr_len_y, eps):
 
 		x = x/s
 		y = y/s
-	
+
 	return x, y
 
 
@@ -406,6 +421,10 @@ def find_centre(input_array, xc_init, yc_init, crop_width, crop_height, eps=1.0,
 	x correspond to the j (column) number of the array!
 	'''
 
+	#Constants
+	filt_sigma = 4 #radius for gaussian filter.
+	threshold = 0.15 #from data_max. Points below this value would not be considered.
+
 	data = np.copy(input_array) #Make an independent copy of the initial array.
 
 	x = xc_init; y = yc_init #Initial assumptions for x_centre and y_centre.
@@ -414,29 +433,53 @@ def find_centre(input_array, xc_init, yc_init, crop_width, crop_height, eps=1.0,
 	gr_len_x = int(round(crop_width/2.0)) #Half-width of the region to be cropped out.
 	gr_len_y = int(round(crop_height/2.0)) #Half-height of the region to be cropped out.
 
-	max_fon1 = np.amax(data[:n_fon,:n_fon])
-	max_fon2 = np.amax(data[-n_fon:,:n_fon])
-	max_fon3 = np.amax(data[:n_fon,-n_fon:])
-	max_fon4 = np.amax(data[-n_fon:,-n_fon:])
+	####TEMPORALY_REMOVED####
+	#max_fon1 = np.amax(data[:n_fon,:n_fon])
+	#max_fon2 = np.amax(data[-n_fon:,:n_fon])
+	#max_fon3 = np.amax(data[-n_fon:,:n_fon])
+	#max_fon4 = np.amax(data[-n_fon:,-n_fon:])
 
-	max_fon = np.amax((max_fon1, max_fon2, max_fon3, max_fon4))
+	#max_fon = np.amax((max_fon1, max_fon2, max_fon3, max_fon4))
+
+	#if np.amax(data) > max_fon:
+	#	data = data-max_fon
+	#	data[data < 0] = 0
+
+	####NEW_METHOD####
+	data = ndimg.gaussian_filter(data, filt_sigma)
+	data_max = np.amax(data)
+	threshold = data_max*threshold
+	data = data + (1.0 - data_max*threshold)
+	data[data < 1.0] = 1.0
+	data = np.log10(data)
+	###################
 	
-	if np.amax(data) > max_fon:
-		data = data-max_fon
-		data[data < 0] = 0
+	####OLD_Method####
+	#data_min = np.amin(data[data > 0])
+	#data[data<=0] = data_min
+	#data = np.log10(data) + np.abs(np.log10(data_min))
+	#data_max = np.amax(data)
+	#fon = np.hstack((data[:n_fon,:n_fon], data[-n_fon:,:n_fon], data[-n_fon:,:n_fon], data[-n_fon:,-n_fon:]))
+	#fon_std = np.std(fon)
+	#data[data<(data_max-fon_std)/2.0] = 0
+	##################
 
 	x,y = find_centre_cycle(data, x, y, gr_len_x, gr_len_y, eps)
-	
+
 	return(int(round(x)),int(round(y)))
 
-def calc_bg_from_empty_frames(filenames_modes, ext, n_fon=20):
+def calc_bg_from_empty_frames(filenames_modes, ext, bd_mult, bd_single, n_fon=20, subtr_plane=True):
 	'''
 	Calculate average background based on 'empty' frames.
 	'''
 
+	#Constants
+	filt_size = 5 #Size for uniform filter.
+	n_sigma = 5 #File is "empty" when filtered array maximum < filtered bg maximum multiplied by this number.
+
 	data = read_modes_basing_on_ext(filenames_modes[0], ext)[0]
 
-	data_bg = np.zeros_like(data)
+	data_bg = np.zeros_like(data, dtype=float)
 	bg_count = 0
 	empty_filenames = []
 
@@ -445,23 +488,45 @@ def calc_bg_from_empty_frames(filenames_modes, ext, n_fon=20):
 		for i, filename_mode in enumerate(filenames_modes):
 
 			#%%Читаем файл в зависимости от разширения.
-			data = read_modes_basing_on_ext(filename_mode, ext)[0]
+			data = read_modes_basing_on_ext(filename_mode, ext)
+			if data is not None:
+				data = data[0]
+			else:
+				continue
+
+			#%%Учитываем пробои.
+			if (len(bd_mult) > 0) and (len(bd_single) > 0):
+				data = apply_bd_map(data, bd_mult, bd_single)
+
+			#%%Вычитаем плоскость
+			if subtr_plane:
+				data = subtract_plane(data, quite=True)
 
 			#%%Считаем стандартное отклонение фона и данных.
-			fon_arr = np.hstack((data[:n_fon,:n_fon], data[-n_fon:,:n_fon], data[:n_fon,-n_fon:], data[-n_fon:,-n_fon:]))
-			fon_std = np.std(fon_arr)
+			fon_arr = np.array((data[:n_fon,:n_fon], data[-n_fon:,:n_fon], data[:n_fon,-n_fon:], data[-n_fon:,-n_fon:]))
+			for i,arr in enumerate(fon_arr):
+				fon_arr[i] = ndimg.median_filter(arr, size=filt_size)
 
-			frame_std = np.std(data)
+			fon_mean = np.mean(fon_arr)
+			fon_std = np.amax(np.std(fon_arr, axis = (1,2)))
+			fon_max = fon_mean + fon_std*n_sigma
 
-			if frame_std <= fon_std:
+			frame_filt = ndimg.median_filter(data, size=filt_size)
+			frame_filt_max = np.amax(frame_filt)
+
+			if frame_filt_max <= fon_max:
 				data_bg += data
 				bg_count += 1
 				empty_filenames.append(filename_mode)
-			
+			#if frame_std <= fon_std:
+			#	data_bg += data
+			#	bg_count += 1
+			#	empty_filenames.append(filename_mode)
+
 			psbar.update(1) #Обновляем строку состояния.
 
 	if bg_count > 0:
-		print(f"{bg_count} 'empty' files have been found.") 
+		print(f"{bg_count} 'empty' files have been found.")
 		print("Empty filenames:")
 		print(empty_filenames)
 		data_bg = data_bg/bg_count
@@ -469,3 +534,18 @@ def calc_bg_from_empty_frames(filenames_modes, ext, n_fon=20):
 	else:
 		print("No 'empty' files")
 		return(None)
+
+def create_default_empty_frame(foldernames_modes, ext, bd_mult, bd_single, n_fon=20, subtr_plane=True):
+
+
+	print("\nCreating default background file. It will be use for data sets, where no 'empty' frames are detected.")
+	file_mask = '*_*'+ext
+	for foldername in foldernames_modes:
+		print(f'Search using mask: {os.path.join(foldername, file_mask)}')
+		filenames_modes = glob.glob(os.path.join(foldername, file_mask))
+		empty = calc_bg_from_empty_frames(filenames_modes, ext, bd_mult, bd_single, n_fon=20, subtr_plane=True)
+
+		if empty is not None:
+			print("Default background array from empty files has been cretated.")
+			return(empty)
+	return(None)
