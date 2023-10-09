@@ -45,8 +45,87 @@ def read_bin_new_program(filepath):
 
 	print("filename = {3}, T = {0}, dt = {1}, dV = {2}".format(T, dt, dV, filepath))
 
-	return(dt, dV, waveform)
+	return(T, dt, dV, waveform)
 
+#%% Чтение бинарных файлов с нового осциллографа.	
+def read_bin_new_Rudnev(filepath):
+	try:
+		with open(filepath, "rb") as binary_file:
+			# Read the whole file at once
+			data = binary_file.read()
+	except (struct.error):
+		return(None)
+
+	E = struct.unpack('>l', data[0:4])[0]
+	T = (struct.unpack('15s', data[4:19])[0]).decode('UTF-8')
+	dt = struct.unpack('>d', data[19:27])[0]
+	ch0_on = struct.unpack('?', data[27:28])[0] #whether channel 0 was on
+	dV0 = struct.unpack('>d', data[28:36])[0] #[mV/bit]
+	ch0_adj = struct.unpack('>d', data[36:44])[0] #channel0 adjustment
+	ch1_on = struct.unpack('?', data[44:45])[0] #whether channel 1 was on
+	dV1 = struct.unpack('>d', data[45:53])[0] #[mV/bit]
+	ch1_adj = struct.unpack('>d', data[53:61])[0] #channel0 adjustment
+	
+	wf_len = len(data)-61
+	s = '>b'+ 'b'*(wf_len-1)
+	
+	try:
+		waveform = np.fromiter(struct.unpack(s, data[61:]), dtype='int8')
+	except (struct.error):
+		return(None)
+	
+	print(f"filename = {filepath}, E = {E}, T = {T}, dt = {dt}, dV0 = {dV0}, dV1 = {dV1}")
+	
+	two_channels = False
+	if ch0_on and ch1_on:
+		ch_num = 2
+		wf0 = waveform[0::2]*dV0-ch0_adj
+		wf1 = waveform[1::2]*dV1-ch1_adj
+		two_channels = True
+		return(two_channels, T, dt, wf0, wf1)
+	elif ch0_on:
+		ch_num = 0
+		waveform = waveform*dV0-ch0_adj
+		two_channels = False
+		return(two_channels, T, dt, ch0_arr)
+	elif ch1_on:
+		ch_num = 1
+		waveform = waveform*dV1-ch1_adj
+		two_channels = False
+		return(two_channels, T, dt, ch1_arr)
+	else:
+		print("ERROR. Unknown channels configuration in read_bin_new_Rudnev in data_proc_basics_script")
+		return("ERROR")
+
+def read_bin_basing_on_args(filename_ac, args=None):
+	'''Read binary file depending on what program was used to write files.'''
+	
+	if args.old_osc:
+		dt, dV, wf = read_bin(filename_ac)
+		two_channels = False
+	elif args.new_Rud:
+		wf_data = read_bin_new_Rudnev(filename_ac)
+		if wf_data is None:
+			return(None)
+		two_channels = wf_data[0]
+		if two_channels:
+			T, dt, wf0, wf1 = wf_data[1:]
+			wf0 = wf0[2:]
+			wf1 = wf1[2:]
+		else:
+			T, dt, wf = wf_data[1:]
+			wf = wf[2:]
+	else:
+		two_channels = False
+		dt, dV, wf = read_bin_new_program(filename_ac)
+	
+	if two_channels:
+		wfs = [wf0, wf1]
+		return(two_channels, dt, wfs)
+	else:
+		wfs = [wf]
+		return(two_channels, dt, wfs)
+	
 #%% Чтение файла с энергиями
 def read_en(filename_en, line_length=17, col_en=9, col_fon=8, col_trig=6, col_times=1, use_fon = True):
 	# Чтение данных из файла с энергиями.
@@ -120,6 +199,21 @@ def calc_lum_time(string):
 		h, m, s = [float(f) for f in string_splitted.split("-")]
 	time = h*3600.0 + m*60.0 + s + ms*0.001
 	return(time)
+	
+def calc_RAW_time(filename_ac_info, seconds_to_subtract):
+	'''
+	Calculate time from a time string in format like "Camera MV-UB130GM#68E65449-2-Snapshot-20210925220546-391516957331.RAW"
+	'''
+	
+	hours = (int(filename_ac_info[-2]) % 10**6)
+	seconds = hours % 10**2
+	hours = hours // 10**2
+	minutes = hours % 10**2
+	hours = hours // 10**2
+	time = (float(filename_ac_info[-1])/10**7 - seconds_to_subtract) + hours*3600 + minutes*60 + seconds
+	
+	return(time)
+	
 
 def max_find_borders(wf, dt):
 	'''
@@ -242,7 +336,8 @@ def read_maxima(folder_ac, filenames_ac_times, filenames_ac_info, ext, bd_mult, 
 				data, width, height = data_info
 			if bd_mult and bd_single:
 				data = apply_bd_map(data, bd_mult, bd_single)
-			data = subtract_plane(data)
+			if subtr_plane:
+				data = subtract_plane(data)
 			if bg_from_empty is not None:
 				data = data - bg_from_empty
 			maxima[i] = np.sum(data)
@@ -251,12 +346,14 @@ def read_maxima(folder_ac, filenames_ac_times, filenames_ac_info, ext, bd_mult, 
 			filename = os.path.join(folder_ac, "__".join(filenames_ac_info[i]) + ext)
 			data_info = read_modes_basing_on_ext(filename, ext)
 			if not data_info:
+				maxima[i] = None
 				continue
 			else:
 				data, width, height = data_info
 			if len(bd_mult) and len(bd_single):
 				data = apply_bd_map(data, bd_mult, bd_single)
-			data = subtract_plane(data)
+			if subtr_plane:
+				data = subtract_plane(data)
 			if bg_from_empty is not None:
 				data = data - bg_from_empty
 			maxima[i] = np.sum(data)
@@ -301,13 +398,24 @@ def make_file_list_to_compare(foldername_ac, ext):
 	else:
 		filenames_ac_info = [f.split(ext)[0].split("__") for f in filenames_ac]
 	filenames_ac_info_ext = []
-	if (ext == '.dat') or (ext == '.tif') or (ext == '.png') or (ext == '.RAW'):
+	if (ext == '.dat') or (ext == '.tif') or (ext == '.png'):
 		for f in filenames_ac_info:
 			time = calc_lum_time(f[-1])
 			filenames_ac_info_ext.append([time, f])
 		filenames_ac_info_ext = sorted(filenames_ac_info_ext, key = lambda x: float(x[0])) #Cортированный по первому элементу названия (времени в мс) список файлов с акустикой.
 		filenames_ac_times = np.array([int(round(f[0]*1000)) for f in filenames_ac_info_ext])
 		filenames_ac_info = [f[1] for f in filenames_ac_info_ext]
+	elif (ext == '.RAW'):
+		times_from_tail = np.array([int(f[-1]) for f in filenames_ac_info])
+		seconds_to_subtract = int(np.floor(np.amin(times_from_tail)/10**7))*10**3
+		for f in filenames_ac_info:
+			hours = (int(f[-2]) % 10**6)
+			seconds = hours % 10**2
+			hours = hours // 10**2
+			minutes = hours % 10**2
+			hours = hours // 10**2
+			time = int(round( (float(f[-1])/10**4 - seconds_to_subtract) )) + hours*3600 + minutes*60 + seconds
+			filenames_ac_info_ext.append([time, f])
 	else:
 		filenames_ac_info = sorted(filenames_ac_info, key = lambda x: int(x[0])) #Cортированный по первому элементу названия (времени в мс) список файлов с акустикой.
 		filenames_ac_times = np.array([int(filename_ac_info[0].split(os.sep)[-1]) for filename_ac_info in filenames_ac_info])
@@ -347,6 +455,10 @@ def make_file_list_to_compare_new_program(foldername_ac, ext):
 		filenames_ac = [f for f in os.listdir(foldername_ac) if f.endswith(ext) and 'MV-UB130GM' in f]
 	else:
 		filenames_ac = [f for f in os.listdir(foldername_ac) if f.endswith(ext)]
+		
+	if filenames_ac == [] and ext =='.png':
+		filenames_ac = [f for f in os.listdir(foldername_ac) if f.endswith(ext) and ('_' in f) and ('.' in f.split(ext)[0])]
+		
 	# Если папка пустая, сразу возвращаем пустые списки (поиск скачка даёт ошибку при пустых списках).
 	if filenames_ac == []:
 		print("Acoustcs folder is empty.")
@@ -357,17 +469,43 @@ def make_file_list_to_compare_new_program(foldername_ac, ext):
 		filenames_ac_info = [f.split(ext)[0].split("__") for f in filenames_ac]
 	filenames_ac_info_ext = []
 
-	for f in filenames_ac_info:
-		if ext == '.RAW':
-			segment = f[-1]
-		else:
+	if ext == '.RAW':
+		filenames_ac_info = sorted(filenames_ac_info, key = lambda x: int(x[-1]))
+		
+		time_mode = np.zeros(len(filenames_ac_info))
+		nonzero_shift = True
+		shift = 0
+		step = 1
+		while nonzero_shift:
+			nonzero_shift = False
+			for i in range(0, len(filenames_ac_info)):
+				time_mode[i] = shift + (
+                        float(filenames_ac_info[i][-1]) - float(filenames_ac_info[0][-1])) / 1e7 + float(
+                    filenames_ac_info[0][-2][-2:]) + 60 * float(filenames_ac_info[0][-2][-4:-2]) + 3600 * float(
+                    filenames_ac_info[0][-2][-6:-4])
+				if (int(time_mode[i]) < int(filenames_ac_info[i][-2][-2:]) + 60 * int(
+                        filenames_ac_info[i][-2][-4:-2]) + 3600 * int(filenames_ac_info[i][-2][-6:-4])):
+					shift = shift + 1 / (2 ** step)
+					step = step + 1
+					nonzero_shift = True
+				if (int(time_mode[i]) > int(filenames_ac_info[i][-2][-2:]) + 60 * int(
+						filenames_ac_info[i][-2][-4:-2]) + 3600 * int(filenames_ac_info[i][-2][-6:-4])):
+					shift = shift - 1 / (2 ** step)
+					step = step + 1
+					nonzero_shift = True
+					
+		filenames_ac_info_ext = np.array(list(zip(time_mode, filenames_ac_info)))
+	else:
+		for f in filenames_ac_info:
 			for segment in f:
 				if ('.' in segment or ',' in segment) and '-' in segment:
 					break
-		time = calc_lum_time(segment)
-		filenames_ac_info_ext.append([time, f])
+			time = calc_lum_time(segment)
+			filenames_ac_info_ext.append([time, f])
+		
 	filenames_ac_info_ext = sorted(filenames_ac_info_ext, key = lambda x: float(x[0])) #Cортированный по первому элементу названия (времени в мс) список файлов с акустикой.
 	filenames_ac_times = np.array([int(round(f[0]*1000)) for f in filenames_ac_info_ext])
+
 	filenames_ac_info = [f[1] for f in filenames_ac_info_ext]
 
 	return(filenames_ac_times, filenames_ac_info)

@@ -16,6 +16,8 @@ import matplotlib.pyplot as plt
 import struct
 import scipy.ndimage as ndimg
 import os, glob
+import h5py
+import bottleneck as bn
 
 from tqdm import tqdm
 
@@ -64,7 +66,7 @@ def read_dat(filename):
 	else:
 		return(data, width, height)
 
-def read_raw_Mind_Vision(filename):
+def read_raw_Mind_Vision(filename, dims=(1280,960), writing_gain=16):
 	"""
 	Function opens .RAW file from chineese CCD. The data should be in format of 16-bit raw matrix.
 
@@ -72,12 +74,13 @@ def read_raw_Mind_Vision(filename):
 	-------------------------------------------
 	- filename : path (string)
 		Path to the file to read data from.
+	- writing_gain:
+		Коэффициент, на которые нужно разделить данные для получения исходных значений.
 	"""
 
 	#Constants.
-	width = 1280 #Длина кадра.
-	height = 960 #Ширина кадра.
-	writing_gain = 16 #Коэффициент, на которые нужно разделить данные для получения исходных значений.
+	width = dims[0] #Длина кадра.
+	height = dims[1] #Ширина кадра.
 
 	#binary data file reading
 	with open(filename, "rb") as binary_file:
@@ -98,12 +101,16 @@ def read_raw_Mind_Vision(filename):
 
 	return(data, width, height)
 
-def read_modes_basing_on_ext(filename_mode, ext):
+def read_modes_basing_on_ext(filename_mode, ext, mult=False, dims=(1280,960), writing_gain=16):
 	'''
 	Function for read mode in dependence of file extension.
 	'''
 	if ext=='.RAW':
-		data, width, height = read_raw_Mind_Vision(filename_mode)
+		try:
+			data, width, height = read_raw_Mind_Vision(filename_mode, dims=dims, writing_gain=writing_gain)
+		except (TypeError):
+			print("Error while reading file {}.".format(filename_mode))
+			return(None)
 	elif ext=='.dat':
 		#Обработка исключения в случае, если не удаётся прочитать .dat файл.
 		try:
@@ -123,6 +130,20 @@ def read_modes_basing_on_ext(filename_mode, ext):
 			except ValueError:
 				print("Error while reading file {}.".format(filename_mode))
 				return(None)
+	elif ext=='.csv':
+		with open(filename_mode, 'r') as f:
+			lines = f.readlines()
+			try:
+				data = np.loadtxt(line.replace(';',' ') for line in lines)
+				height, width = data.shape
+			except ValueError:
+				try:
+					data = np.loadtxt(line.replace(';',' ') for line in lines[1:])
+					data = data[:,1:]
+					height, width = data.shape
+				except ValueError:
+					print("Error while reading file {}.".format(filename_mode))
+					return(None)
 	elif ext=='.npy':
 		data=np.load(filename_mode)
 		height, width = data.shape
@@ -133,6 +154,26 @@ def read_modes_basing_on_ext(filename_mode, ext):
 		except OSError:
 			print("Error while reading file {}.".format(filename_mode))
 			return(None)
+	elif ext=='.bgData':
+		if not mult:
+			with h5py.File(filename_mode, 'r') as f:
+				data = f['BG_DATA']['1']['DATA'][()]
+				height = f['BG_DATA']['1']['RAWFRAME']['HEIGHT'][()][0]
+				width = f['BG_DATA']['1']['RAWFRAME']['WIDTH'][()][0]
+				data = np.reshape(data, (height, width))
+				data = data/2**19
+		else:
+			mult_data = []
+			with h5py.File(filename_mode, 'r') as f:
+				data_list = f['BG_DATA']
+				for i in range(1, len(data_list)+1):
+					data = data_list[str(int(i))]['DATA'][()]
+					height = data_list[str(int(i))]['RAWFRAME']['HEIGHT'][()][0]
+					width = data_list[str(int(i))]['RAWFRAME']['WIDTH'][()][0]
+					data = np.reshape(data, (height, width))
+					data = data/2**19
+					mult_data.append(data)
+			return(mult_data, width, height)
 	else:
 		print("In data_proc, in file lumin_proc, in function read_modes_basing_on_ext:")
 		print(f'ERROR: unknown extension {ext}')
@@ -260,6 +301,53 @@ def apply_bd_map(data, bd_mult, bd_single):
 			data[j,i] = vic_sum/8.0
 	return data
 
+def remove_hot_spots(data, threshold = 0.5, window=3):
+	"""
+	Looks for single pixel hot spots and removes them from the data array.
+	Window should be even.
+	"""
+	bord_width = int(np.floor((window-1)/2.0))
+	data1 = np.zeros_like(data[window-1:,window-1:])
+	count = 0
+	for i in range(bord_width, data.shape[0]-bord_width-1):
+		for j in range(bord_width, data.shape[1]-bord_width-1):
+			border_sum = np.sum(data[i-1:i+2,j-1:j+2]) - data[i,j]
+			border_mean = border_sum/(window**2 - 1)
+			if data[i,j] == 0:
+				data1[i,j] = data[i,j]
+			else:
+				if border_mean < data[i,j]*threshold:
+					data1[i,j] = border_mean
+					print(i,j)
+					count+=1
+				else:
+					data1[i,j] = data[i,j]
+	print(f'count = {count}')
+
+	return(data1)
+	
+def remove_hot_spots1(data, threshold = 0.5, window=3):
+	"""
+	Looks for single pixel hot spots and removes them from the data array.
+	Window should be even.
+	"""
+	bord_width = int(np.floor((window-1)/2.0))
+	data1 = ndimg.median_filter(data, size=window)
+	mask = np.argwhere(data1 < threshold*data)
+	data2 = np.copy(data)
+	count = 0
+	for coords in mask:
+		print(coords)
+		if (coords[0] < bord_width) or (coords[1] < bord_width) or (coords[0] > data.shape[0]-bord_width-1) or (coords[1] > data.shape[1]-bord_width-1):
+			data2[coords[0], coords[1]] = data1[coords[0], coords[1]]
+		else: 
+			border_sum = np.sum(data[coords[0]-1:coords[0]+2,coords[1]-1:coords[1]+2]) - data[coords[0],coords[1]]
+			border_mean = border_sum/(window**2 - 1)
+			data2[coords[0], coords[1]] = border_mean
+	print(f'count = {count}')
+
+	return(data2)
+	
 def run_av_2d(data, window=11, axis=1):
 	'''
 	Function performs running average on 2d data array along x axis.
@@ -276,9 +364,10 @@ def run_av(data, window=11):
 	Function performs running average on 1d data array.
 	window should be even.
 	'''
-	data_1 = np.zeros_like(data[window-1:])
-	for i in range(0, data.shape[0]-(window-1)):
-		data_1[i] = np.mean(data[i:i+window])
+	data_1 = bn.move_mean(data, window=window)[window-1:]
+	#data_1 = np.zeros_like(data[window-1:])
+	#for i in range(0, data.shape[0]-(window-1)):
+	#	data_1[i] = np.mean(data[i:i+window])
 
 	return(data_1)
 
@@ -370,6 +459,26 @@ def subtract_plane(data, quite=False):
 
 	return(data)
 
+def subtract_min_corner(data):
+	'''
+	Function subtracts constant from the data, basing on the minimum average value of data array corners.
+	'''
+	
+	#Constants.
+	corner_size = 20 #px
+	
+	#Выделяем полосы вдоль сторон массива шириной stripe_width без повторения элементов.
+	corner1 = np.mean(data[:corner_size,:corner_size])
+	corner2 = np.mean(data[-corner_size-1:,:corner_size])
+	corner3 = np.mean(data[:corner_size,-corner_size-1:])
+	corner4 = np.mean(data[-corner_size-1:,-corner_size-1:])
+
+	bg_value = np.amin((corner1, corner2, corner3, corner4))
+	
+	data = data - bg_value
+	
+	return(data)
+
 def find_centre_cycle(data, x, y, gr_len_x, gr_len_y, eps):
 	'''
 	Cycle for find_centre function.
@@ -448,7 +557,6 @@ def find_centre(input_array, xc_init, yc_init, crop_width, crop_height, eps=1.0,
 	####NEW_METHOD####
 	data = ndimg.gaussian_filter(data, filt_sigma)
 	data_max = np.amax(data)
-	threshold = data_max*threshold
 	data = data + (1.0 - data_max*threshold)
 	data[data < 1.0] = 1.0
 	data = np.log10(data)

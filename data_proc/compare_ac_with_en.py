@@ -14,6 +14,9 @@ import data_proc.data_proc_basics.data_proc_basics_script as dpb
 
 #import calibrator_1 as calibr
 
+from collections import defaultdict
+import pickle
+
 #%% Constants
 empty_threshold = 350.0
 n_ac_try_range = 10
@@ -52,20 +55,19 @@ def shift_search(filenames_ac_times, dt = 0.1, shift_border_min = -3, shift_bord
 	return(shift)
 
 #%% Проверка, были ли пропущены стробы.
-def check_if_there_were_lost(filename_en, foldername_ac, ext='.bin', col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, use_trig = True, use_fon = True, old_osc=False):
+def check_if_there_were_lost(filename_en, foldername_ac, ext='.bin', col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, use_trig = True, use_fon = True, old_osc=False, en_param_list=None):
 
 	#%% Constants
 	threshold = 80 #[ms] - допустимая разница между ожидаемым и реальным длиной выборки по времени. Если больше - считаем, что пропущен кадр.
 	DELTA_en = 0.15 #[s] - максимальная допустимая разница между временами фиксации соседних значений энергий в выборке.
 
-	#%% Read parameters from the energy file.
-	en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
-	if en_param_list == None: #Если массив энергий пуст, завершаем выполнение функции.
+	if en_param_list is None:
+		#%% Read parameters from the energy file.
+		en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
+	if (en_param_list == None) or (en_param_list[3] <= 2): #Если массив энергий пуст, завершаем выполнение функции.
 		return("Empty.")
 	else:
 		time_en, energies, i_start, lc = en_param_list
-	if use_trig == False:
-		i_start = 1
 
 	#%% Read list of filenames with luminescence.
 	if old_osc:
@@ -93,7 +95,7 @@ def check_if_there_were_lost(filename_en, foldername_ac, ext='.bin', col_en=9, c
 		return(False)
 
 #%% Функция сопоставления акустики и энергии.
-def compare(filename_en, foldername_ac, folder_to_write, ext='.bin', col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, EPS_TIME_EN=0.12, EPS_TIME_AC=5, N_try=5, EPS_TIME_EN_1=0.025, use_trig = True, shift = None, use_fon = True, old_osc=False):
+def compare(filename_en, foldername_ac, folder_to_write, ext='.bin', col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, EPS_TIME_EN=0.12, EPS_TIME_AC=5, N_try=5, EPS_TIME_EN_1=0.025, use_trig = True, shift = None, use_fon = True, old_osc=False, en_param_list=None):
 
 	'''
 	This function matches energies from a file with energies with other data obtained in single-shot regime (acoustics, or modes, or luminescence, or interferograms) in "parrots".
@@ -126,8 +128,9 @@ def compare(filename_en, foldername_ac, folder_to_write, ext='.bin', col_en=9, c
 	dt_ms = dt*1000
 
 	#%% Read parameters from the energy file.
-	en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
-	if en_param_list == None: #Если массив энергий пуст, завершаем выполнение функции.
+	if en_param_list is None:
+		en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
+	if (en_param_list == None) or (en_param_list[3] <= 2): #Если массив энергий пуст, завершаем выполнение функции.
 		return("Empty.")
 	else:
 		time_en, energies, i_start, lc = en_param_list
@@ -281,11 +284,15 @@ def compare(filename_en, foldername_ac, folder_to_write, ext='.bin', col_en=9, c
 
 #############
 
-def compare_new_method(filename_en, foldername_ac, folder_to_write, ext='.bin', shift = None, col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, DELTA = 15, use_trig = True, use_fon = True, old_osc=False):
+def compare_new_method(filename_en, foldername_ac, folder_to_write, ext='.bin', shift = None, best_i = 0, col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, DELTA = 15, use_trig = True, use_fon = True, old_osc=False, en_param_list=None, make_dict=False):
 
+	#%%Constants
+	count_threshold = 50
+	queue_size = 10
 	#%% Read parameters from the energy file.
-	en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
-	if en_param_list == None: #Если массив энергий пуст, завершаем выполнение функции.
+	if en_param_list is None:
+		en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
+	if (en_param_list == None) or (en_param_list[3] <= 2): #Если массив энергий пуст, завершаем выполнение функции.
 		return("Empty.")
 	else:
 		time_en, energies, i_start, lc = en_param_list
@@ -310,42 +317,75 @@ def compare_new_method(filename_en, foldername_ac, folder_to_write, ext='.bin', 
 	#shift = 0
 
 	#%% Цикл, сопоставляющий акустику и энергию.
-	if shift >= 0:
-		time_ac_zero = filenames_ac_times[shift]
-		time_en_zero = time_en[i_start]
-		shift_i = i_start
-		shift_j = shift
+	if shift > 0:
+		if filenames_ac_times[shift+1] - filenames_ac_times[shift] > 150:
+			time_ac_zero_array = np.arange(filenames_ac_times[shift], filenames_ac_times[shift+1], 100)
+		else:
+			time_ac_zero_array = [filenames_ac_times[shift]]
+		time_en_zero_array = [time_en[i_start]]
+	elif shift < 0:
+		if time_en[i_start-shift] - time_en[i_start-(shift+1)] > 0.15:
+			time_en_zero_array = np.arange(time_en[i_start-(shift+1)], time_en[i_start-shift], 0.1)
+		else:
+			time_en_zero_array = [time_en[i_start-shift]]
+		time_ac_zero_array = [filenames_ac_times[0]]
 	else:
-		time_ac_zero = filenames_ac_times[0]
-		time_en_zero = time_en[i_start-shift]
-		shift_i = i_start-shift
-		shift_j = 0
+		time_ac_zero_array = [filenames_ac_times[shift]]
+		time_en_zero_array = [time_en[i_start]]
 
-	time_en_new = (np.around((time_en - time_en_zero)*1000)).astype(int) #Времена для энергий в мс, сдвинутые в начало отсчёта.
-	time_ac_new = filenames_ac_times - time_ac_zero
-
-	time_en_new = time_en_new[time_en_new > -is_zero_int]
-	time_ac_new = time_ac_new[time_ac_new > -is_zero_int]
+	time_en_new_arr = []; time_ac_new_arr = []
+	for time_en_zero in time_en_zero_array:
+		time_en_new_arr.append( (np.around((time_en - time_en_zero)*1000)).astype(int) ) #Времена для энергий в мс, сдвинутые в начало отсчёта.
+	for time_ac_zero in time_ac_zero_array:
+		time_ac_new_arr.append( filenames_ac_times - time_ac_zero )
 
 	start_ac_count = 0
+	en_dict = defaultdict(list)
+	if shift < 0:
+		time_en_new = time_en_new_arr[best_i]; time_ac_new = time_ac_new_arr[0]
+	elif shift > 0:
+		time_en_new = time_en_new_arr[0]; time_ac_new = time_ac_new_arr[best_i]
+	else:
+		time_en_new = time_en_new_arr[0]; time_ac_new = time_ac_new_arr[0]
+	
+	queue = []; count = 0
 	for i in range(0,len(time_en_new)):
+		if count > count_threshold:
+			dt = np.zeros(len(queue))
+			for ii, num in enumerate(queue):
+				dt[ii] = time_ac_new[num[1]] - time_en_new[num[0]] 
+			dt_mean = np.mean(dt)
+			time_en_new += int(dt_mean)
+			count = 0
 		for j in range(start_ac_count, len(time_ac_new)):
-			#if i==1 and j in range(0,3):
-				#print("!!! i={}, j={}, time_en_new[i] = {}, time_ac_new[j]={}, abs={}".format(i, j, time_en_new[i], time_ac_new[j],abs(time_en_new[i]-time_ac_new[j])))
 			if abs(time_en_new[i]-time_ac_new[j]) < DELTA:
 				if ext=='.RAW':
-					filename_ac_new = os.path.join(folder_to_write, str(energies[i+shift_i]) + "_" + str(i+shift_i) + "_" + "-".join(filenames_ac_info[j+shift_j]) + ext)
-					filename_ac = os.path.join(foldername_ac, "-".join(filenames_ac_info[j+shift_j]) + ext)
+					filename_ac_short = "-".join(filenames_ac_info[j]) + ext
 				else:
-					filename_ac_new = os.path.join(folder_to_write, str(energies[i+shift_i]) + "_" + str(i+shift_i) + "_" + "__".join(filenames_ac_info[j+shift_j]) + ext)
-					filename_ac = os.path.join(foldername_ac, "__".join(filenames_ac_info[j+shift_j]) + ext)
-				sh.copyfile(filename_ac, filename_ac_new)
+					filename_ac_short = "__".join(filenames_ac_info[j]) + ext
+				filename_ac_new = os.path.join(folder_to_write, str(energies[i]) + "_" + str(i) + "_" + filename_ac_short)
+				filename_ac = os.path.join(foldername_ac, filename_ac_short)
+				if not make_dict:
+					filename_ac_new = os.path.join(folder_to_write, str(energies[i]) + "_" + str(i) + "_" + "__".join(filenames_ac_info[j]) + ext)
+					sh.copyfile(filename_ac, filename_ac_new)
+				else:
+					small_dict = {'number': i, 'filename': filename_ac}
+					en_dict[energies[i]].append(small_dict)
 				start_ac_count = j
+				if len(queue) < queue_size:
+					queue.append( (i,j) )
+				else:
+					queue.pop(0); queue.append( (i,j) )
 				break
+	if make_dict:
+		filename_to_save = os.path.join(folder_to_write, os.path.basename(os.path.normpath(folder_to_write))+'.pkl')
+		with open(filename_to_save, 'w') as f:
+			pickle.dump(en_dict, f)
+			
 	return("OK")
 
 #%% Функция сопоставления акустики и энергии.
-def compare_not_save(filename_en, foldername_ac, ext='.bin', shift = 0, col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, EPS_TIME_EN=0.12, EPS_TIME_AC=12, N_try=5, EPS_TIME_EN_1=0.025, use_trig = True, use_fon = True, old_osc=False):
+def compare_not_save(filename_en, foldername_ac, ext='.bin', shift = 0, col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, EPS_TIME_EN=0.12, EPS_TIME_AC=12, N_try=5, EPS_TIME_EN_1=0.025, use_trig = True, use_fon = True, old_osc=False, en_param_list=None):
 
 	#%% Инициализация переменных
 	count_en_skipped = 0
@@ -353,8 +393,9 @@ def compare_not_save(filename_en, foldername_ac, ext='.bin', shift = 0, col_en=9
 	dt_ms = dt*1000
 
 	#%% Read parameters from the energy file.
-	en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
-	if en_param_list == None: #Если массив энергий пуст, завершаем выполнение функции.
+	if en_param_list is None:
+		en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
+	if (en_param_list == None) or (en_param_list[3] <= 2): #Если массив энергий пуст, завершаем выполнение функции.
 		return("Empty.")
 	else:
 		time_en, energies, i_start, lc = en_param_list
@@ -489,11 +530,19 @@ def compare_not_save(filename_en, foldername_ac, ext='.bin', shift = 0, col_en=9
 	return(calibration)
 
 #%% Функция сопоставления акустики и энергии (время рассчитывается от начала выборки (не от предыдущего кадра)).
-def compare_not_save_new_method(filename_en, foldername_ac, ext='.bin', shift = None, col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, DELTA = 15, use_trig = True, use_fon = True, old_osc=False):
+def compare_not_save_new_method(filename_en, foldername_ac, ext='.bin', shift = None, col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, DELTA = 15, use_trig = True, use_fon = True, old_osc=False, en_param_list=None):
 
+	'''
+	Предполагается, что shift на каждом новом шаге последовательно УВЕЛИЧИВАЕТСЯ на 1.
+	'''
+	
+	#%%Constants
+	count_threshold = 50
+	queue_size = 10
 	#%% Read parameters from the energy file.
-	en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
-	if en_param_list == None: #Если массив энергий пуст, завершаем выполнение функции.
+	if en_param_list is None:
+		en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
+	if (en_param_list == None) or (en_param_list[3] <= 2): #Если массив энергий пуст, завершаем выполнение функции.
 		return("Empty.")
 	else:
 		time_en, energies, i_start, lc = en_param_list
@@ -518,46 +567,171 @@ def compare_not_save_new_method(filename_en, foldername_ac, ext='.bin', shift = 
 	#shift = 0
 
 	#%% Цикл, сопоставляющий акустику и энергию.
-	if shift >= 0:
-		time_ac_zero = filenames_ac_times[shift]
-		time_en_zero = time_en[i_start]
-		shift_i = i_start
-		shift_j = shift
+	if shift > 0:
+		if filenames_ac_times[shift+1] - filenames_ac_times[shift] > 150:
+			time_ac_zero_array = np.arange(filenames_ac_times[shift], filenames_ac_times[shift+1], 100)
+		else:
+			time_ac_zero_array = [filenames_ac_times[shift]]
+		time_en_zero_array = [time_en[i_start]]
+	elif shift < 0:
+		if time_en[i_start-shift] - time_en[i_start-(shift+1)] > 0.15:
+			time_en_zero_array = np.arange(time_en[i_start-(shift+1)], time_en[i_start-shift], 0.1)
+			###TEMP###
+			print("SHIFTED_TIME.")
+			##########
+		else:
+			time_en_zero_array = [time_en[i_start-shift]]
+		time_ac_zero_array = [filenames_ac_times[0]]
 	else:
-		time_ac_zero = filenames_ac_times[0]
-		time_en_zero = time_en[i_start-shift]
-		shift_i = i_start-shift
-		shift_j = 0
+		time_ac_zero_array = [filenames_ac_times[shift]]
+		time_en_zero_array = [time_en[i_start]]
 
-	time_en_new = (np.around((time_en - time_en_zero)*1000)).astype(int) #Времена для энергий в мс, сдвинутые в начало отсчёта.
-	time_ac_new = filenames_ac_times - time_ac_zero
+	time_en_new_arr = []; time_ac_new_arr = []
+	for time_en_zero in time_en_zero_array:
+		time_en_new_arr.append( (np.around((time_en - time_en_zero)*1000)).astype(int) ) #Времена для энергий в мс, сдвинутые в начало отсчёта.
+	for time_ac_zero in time_ac_zero_array:
+		time_ac_new_arr.append( filenames_ac_times - time_ac_zero )
 
-	time_en_new = time_en_new[time_en_new >= -is_zero_int]
-	time_ac_new = time_ac_new[time_ac_new >= -is_zero_int]
+	calibrations = [] #List for calibration + number of successfully matched data points.
+	if shift < 0:
+		time_ac_new = time_ac_new_arr[0]
+		time_ac_new = np.sort(time_ac_new)
+		len_time_ac_full = len(time_ac_new)
+		time_ac_new = time_ac_new[time_ac_new >= -is_zero_int]
+		len_time_ac_cropped = len(time_ac_new)
+		shift_time_ac = len_time_ac_full - len_time_ac_cropped
+		for time_en_new in time_en_new_arr:
+			time_en_new = np.sort(time_en_new)
+			len_time_en_full = len(time_en_new)
+			time_en_new = time_en_new[time_en_new >= -is_zero_int]
+			len_time_en_cropped = len(time_en_new)
+			shift_time_en = len_time_en_full - len_time_en_cropped
+				
+			calibration_en = []; calibration_fn = []
+			queue = []; count = 0
+			for i in range(0, len(time_en_new)-shift_time_en):
+				if count > count_threshold:
+					dt = np.zeros(len(queue))
+					for ii, num in enumerate(queue):
+						dt[ii] = time_ac_new[num[1]] - time_en_new[num[0]] 
+					dt_mean = np.mean(dt)
+					time_en_new += int(dt_mean)
+					count = 0
+				for j in range(0, len(time_ac_new)-shift_time_ac):
+					if time_en_new[i] == 532395:
+						print("111")
+						print(f'time_en_new == {time_en_new[i]}')
+					if time_ac_new[j] == 532396:
+						print("222")
+						print(f'time_en_new == {time_en_new[i]}')
+						print(f'abs(time_en_new[i]-time_ac_new[j]) < DELTA: {abs(time_en_new[i]-time_ac_new[j]) < DELTA}')
+						print(f'len(time_en_new) = {len(time_en_new)}, len(time_en_new) - shift_time_en = {len(time_en_new) - shift_time_en}')
+						print(f'i = {i}, j = {j}')
+					if abs(time_en_new[i]-time_ac_new[j]) < DELTA:
+						calibration_en.append(energies[i+shift_time_en])
+						calibration_fn.append(filenames_ac_info[j+shift_time_ac])
+						count += 1
+						if len(queue) < queue_size:
+							queue.append( (i,j) )
+						else:
+							queue.pop(0); queue.append( (i,j) )
+						break
+			calibration = (calibration_en.copy(), calibration_fn.copy())		
+			calibrations.append(calibration)
+	else:
+		time_en_new = time_en_new_arr[0]
+		time_en_new = np.sort(time_en_new)
+		len_time_en_full = len(time_en_new)
+		time_en_new = time_en_new[time_en_new >= -is_zero_int]
+		len_time_en_cropped = len(time_en_new)
+		shift_time_en = len_time_en_full - len_time_en_cropped
+		for time_ac_new in time_ac_new_arr:
+			time_ac_new = np.sort(time_ac_new)
+			len_time_ac_full = len(time_ac_new)
+			time_ac_new = time_ac_new[time_ac_new >= -is_zero_int]
+			len_time_ac_cropped = len(time_ac_new)
+			shift_time_ac = len_time_ac_full - len_time_ac_cropped
+				
+			calibration_en = []; calibration_fn = []
+			queue = []; count = 0
+			for i in range(0,len(time_en_new)):
+				if count > count_threshold:
+					dt = np.zeros(len(queue))
+					for ii, num in enumerate(queue):
+						dt[ii] = time_ac_new[num[1]] - time_en_new[num[0]] 
+					dt_mean = np.mean(dt)
+					time_en_new += int(dt_mean)
+					count = 0
+				for j in range(0, len(time_ac_new)):
+					if abs(time_en_new[i]-time_ac_new[j]) < DELTA:
+						calibration_en.append(energies[i+shift_time_en])
+						calibration_fn.append(filenames_ac_info[j+shift_time_ac])
+						count += 1
+						if len(queue) < queue_size:
+							queue.append( (i,j) )
+						else:
+							queue.pop(0); queue.append( (i,j) )
+						break
+			calibration = (calibration_en.copy(), calibration_fn.copy())		
+			calibrations.append(calibration)
+			
+	###TEMP###TEMP########TEMP###############
+	#Графики: энергия от времени, соотнесение времен (точки).
+	
+	i,j = queue.pop()[:]
+	print(f'Last time en, last time ac: {time_en_new[i]}, {time_ac_new[j]}')
+	print(f'Next time en, next time ac: {time_en_new[i+1]}, {time_ac_new[j+1]}')
+	
+	print(f'time_en_new[i:i+102]:')
+	print(f'{time_en_new[i:i+102]}')
+	print(f'time_ac_new[j:j+102]')
+	print(f'{time_ac_new[j:j+102]}')
 
-	start_ac_count = 0
-	k = 0
-	calibration = np.zeros((len(time_en_new), 2))
-	for i in range(0,len(time_en_new)):
-		for j in range(start_ac_count, len(time_ac_new)):
-			#if i==1 and j in range(0,3):
-				#print("!!! i={}, j={}, time_en_new[i] = {}, time_ac_new[j]={}, abs={}".format(i, j, time_en_new[i], time_ac_new[j],abs(time_en_new[i]-time_ac_new[j])))
-			if abs(time_en_new[i]-time_ac_new[j]) < DELTA:
-				#print("i={}, j={}, k={}, time_en_new[i]={}, time_ac_new[j]={}".format(i, j, k, time_en_new[i], time_ac_new[j]))
-				calibration[k,0] = energies[i+shift_i]
-				calibration[k,1] = filenames_ac_times[j+shift_j]
-				start_ac_count = j
-				k += 1
-				break
+	import matplotlib.pyplot as plt
+	filename_to_plot = os.path.join(foldername_ac, 'Times_'+str(shift)+'.png')
+	plt.figure(figsize=(20,5), dpi=200)
+	plt.rcParams['text.latex.preamble'] = [r'\boldmath']
+	plt.xlabel('Time')
+	plt.ylabel('Points')
+	for i, time_en_new in enumerate(time_en_new_arr):
+		en_points = np.full_like(time_en_new[0:100], i)
+		plt.scatter(time_en_new[0:100], en_points)
+	ac_points = np.full_like(time_ac_new_arr[0][0:100], len(time_en_new_arr))
+	plt.scatter(time_ac_new_arr[0][0:100], ac_points)
+	plt.grid()
+	plt.minorticks_on()
+	plt.tick_params(axis='x', pad=7)
+	plt.tick_params(axis='y', pad=5)
+	plt.xlim(0, 2500)
+	plt.savefig(filename_to_plot, bbox_inches='tight')
+	plt.close()
+	
+	filename_to_plot = os.path.join(foldername_ac, 'Energy_from_time_'+str(shift)+'.png')
+	plt.figure(figsize=(20,5), dpi=200)
+	plt.rcParams['text.latex.preamble'] = [r'\boldmath']
+	plt.xlabel('Time')
+	plt.ylabel('Points')
+	for calibration in calibrations:
+		X = np.arange(len(calibration[0]))
+		plt.plot(X, calibration[0])
+	plt.grid()
+	plt.minorticks_on()
+	plt.tick_params(axis='x', pad=7)
+	plt.tick_params(axis='y', pad=5)
+	plt.savefig(filename_to_plot, bbox_inches='tight')
+	plt.close()
 
-	return(calibration)
+	############################################################################
+
+	return(calibrations)
 
 #%% Функция сопоставления акустики и энергии, если не было пропущено ни одного строба ни на акустике, ни на энергии (без сохранения файлов).
-def compare_not_save_no_lost(filename_en, foldername_ac, ext='.bin', shift = None, col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, DELTA = 15, use_trig = True, use_fon = True, old_osc=False):
+def compare_not_save_no_lost(filename_en, foldername_ac, ext='.bin', shift = None, col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, DELTA = 15, use_trig = True, use_fon = True, old_osc=False, en_param_list=None):
 
 	#%% Read parameters from the energy file.
-	en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
-	if en_param_list == None: #Если массив энергий пуст, завершаем выполнение функции.
+	if en_param_list is None:
+		en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
+	if (en_param_list == None) or (en_param_list[3] <= 2): #Если массив энергий пуст, завершаем выполнение функции.
 		return("Empty.")
 	else:
 		time_en, energies, i_start, lc = en_param_list
@@ -598,7 +772,7 @@ def compare_not_save_no_lost(filename_en, foldername_ac, ext='.bin', shift = Non
 
 	time_en_new = time_en_new[time_en_new >= -is_zero_int]
 	time_ac_new = time_ac_new[time_ac_new >= -is_zero_int]
-
+	
 	calibration = np.zeros((min(len(time_en_new), len(time_ac_new)), 2))
 	for i in range(0, np.shape(calibration)[0]):
 		calibration[i,0] = energies[i+shift_i]
@@ -606,12 +780,13 @@ def compare_not_save_no_lost(filename_en, foldername_ac, ext='.bin', shift = Non
 
 	return(calibration)
 
-def compare_no_lost(filename_en, foldername_ac, folder_to_write, ext='.bin', shift = None, col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, DELTA = 15, use_trig = True, use_fon = True, old_osc=False):
+def compare_no_lost(filename_en, foldername_ac, folder_to_write, ext='.bin', shift = None, col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, DELTA = 15, use_trig = True, use_fon = True, old_osc=False, en_param_list=None, make_dict = False):
 
 
 	#%% Read parameters from the energy file.
-	en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
-	if en_param_list == None: #Если массив энергий пуст, завершаем выполнение функции.
+	if en_param_list is None:
+		en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
+	if (en_param_list == None) or (en_param_list[3] <= 2): #Если массив энергий пуст, завершаем выполнение функции.
 		return("Empty.")
 	else:
 		time_en, energies, i_start, lc = en_param_list
@@ -653,22 +828,32 @@ def compare_no_lost(filename_en, foldername_ac, folder_to_write, ext='.bin', shi
 	time_en_new = time_en_new[time_en_new > -is_zero_int]
 	time_ac_new = time_ac_new[time_ac_new > -is_zero_int]
 
+	en_dict = defaultdict(list)
 	for i in range(0, min(len(time_en_new), len(time_ac_new))):
 		if ext=='.RAW':
-			filename_ac_new = os.path.join(folder_to_write, str(energies[i+shift_i]) + "_" + str(i+shift_i) + "_" + "-".join(filenames_ac_info[i+shift_j]) + ext)
-			filename_ac = os.path.join(foldername_ac, "-".join(filenames_ac_info[i+shift_j]) + ext)
+			filename_ac_short = "-".join(filenames_ac_info[i+shift_j]) + ext
 		else:
-			filename_ac_new = os.path.join(folder_to_write, str(energies[i+shift_i]) + "_" + str(i+shift_i) + "_" + "__".join(filenames_ac_info[i+shift_j]) + ext)
-			filename_ac = os.path.join(foldername_ac, "__".join(filenames_ac_info[i+shift_j]) + ext)
-		sh.copyfile(filename_ac, filename_ac_new)
+			filename_ac_short = "__".join(filenames_ac_info[i+shift_j]) + ext
+		filename_ac = os.path.join(foldername_ac, filename_ac_short)
+		if not make_dict:
+			filename_ac_new = os.path.join(folder_to_write, str(energies[i+shift_i]) + "_" + str(i+shift_i) + "_" + filename_ac_short)
+			sh.copyfile(filename_ac, filename_ac_new)
+		else:
+			small_dict = {'number': i+shift_i, 'filename': filename_ac}
+			en_dict[energies[i+shift_i]].append(small_dict)
+	if make_dict:
+		filename_to_save = os.path.join(folder_to_write, os.path.basename(os.path.normpath(folder_to_write))+'.pkl')
+		with open(filename_to_save, 'w') as f:
+			pickle.dump(en_dict, f)
 
 	return("OK")
 
-def compare_not_save_same_computer(filename_en, foldername_ac, ext='.bin', col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, DELTA = 15, use_fon = True, old_osc=False):
+def compare_not_save_same_computer(filename_en, foldername_ac, ext='.bin', col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, DELTA = 15, use_fon = True, old_osc=False, en_param_list=None):
 
 	#%% Read parameters from the energy file.
-	en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
-	if en_param_list == None: #Если массив энергий пуст, завершаем выполнение функции.
+	if en_param_list is None:
+		en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
+	if (en_param_list == None) or (en_param_list[3] <= 2): #Если массив энергий пуст, завершаем выполнение функции.
 		return("Empty.")
 	else:
 		time_en, energies, i_start, lc = en_param_list
@@ -685,23 +870,28 @@ def compare_not_save_same_computer(filename_en, foldername_ac, ext='.bin', col_e
 		return("Empty")
 
 	time_en = time_en*1000.0
+	###TEMP###
+	print(f'time_en = {time_en}')
+	print(f'filenames_ac_times = {filenames_ac_times}')
+	##########
 	calibration = np.zeros((min(len(time_en), len(filenames_ac_times)), 2))
 	k = 0
 	for i in range(0, len(time_en)):
 		for j in range(0, len(filenames_ac_times)):
 			if abs(time_en[i] - filenames_ac_times[j]) < DELTA:
 				calibration[k,0] = energies[i]
-				calibration[k,1] = filenames_ac_times[j]
+				calibration[k,1] = filenames_ac_info[j][-1]
 				k += 1
-
+				
 	return(calibration)
 
-def compare_same_computer(filename_en, foldername_ac, folder_to_write, ext='.bin', col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, DELTA = 15, use_fon = True, old_osc=False):
+def compare_same_computer(filename_en, foldername_ac, folder_to_write, ext='.bin', col_en=9, col_fon=8, col_trig=6, col_times=1, line_length=17, dt=0.1, DELTA = 15, use_fon = True, old_osc=False, en_param_list=None, make_dict=False):
 
 
 	#%% Read parameters from the energy file.
-	en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
-	if en_param_list == None: #Если массив энергий пуст, завершаем выполнение функции.
+	if en_param_list is None:
+		en_param_list = dpb.read_en(filename_en, line_length, col_en, col_fon, col_trig, col_times, use_fon = use_fon)
+	if (en_param_list == None) or (en_param_list[3] <= 2): #Если массив энергий пуст, завершаем выполнение функции.
 		return("Empty.")
 	else:
 		time_en, energies, i_start, lc = en_param_list
@@ -718,16 +908,25 @@ def compare_same_computer(filename_en, foldername_ac, folder_to_write, ext='.bin
 		return("Empty")
 
 	time_en = time_en*1000.0
+	en_dict = defaultdict(list)
 	for i in range(0, len(time_en)):
 		for j in range(0, len(filenames_ac_times)):
 			if abs(time_en[i] - filenames_ac_times[j]) < DELTA:
 				if ext=='.RAW':
-					filename_ac_new = os.path.join(folder_to_write, str(energies[i]) + "_" + str(i) + "_" + "-".join(filenames_ac_info[j]) + ext)
-					filename_ac = os.path.join(foldername_ac, "-".join(filenames_ac_info[j]) + ext)
+					filename_ac_short = "-".join(filenames_ac_info[j]) + ext
 				else:
-					filename_ac_new = os.path.join(folder_to_write, str(energies[i]) + "_" + str(i) + "_" + "__".join(filenames_ac_info[j]) + ext)
-					filename_ac = os.path.join(foldername_ac, "__".join(filenames_ac_info[j]) + ext)
-				sh.copyfile(filename_ac, filename_ac_new)
+					filename_ac_short = "__".join(filenames_ac_info[j]) + ext
+				filename_ac = os.path.join(foldername_ac, filename_ac_short)
+				if not make_dict:
+					filename_ac_new = os.path.join(folder_to_write, str(energies[i]) + "_" + str(i) + "_" + filename_ac_short)
+					sh.copyfile(filename_ac, filename_ac_new)
+				else:
+					small_dict = {'number': i, 'filename': filename_ac}
+					en_dict[energies[i]].append(small_dict)
 				break
+	if make_dict:
+		filename_to_save = os.path.join(folder_to_write, os.path.basename(os.path.normpath(folder_to_write))+'.pkl')
+		with open(filename_to_save, 'w') as f:
+			pickle.dump(en_dict, f)
 
 	return("OK")
