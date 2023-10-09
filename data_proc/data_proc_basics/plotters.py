@@ -18,10 +18,10 @@ import gc
 sys.path.append(r'/usr/bin/latex')
 
 mpl.rcParams['agg.path.chunksize'] = 10000 #Enables large file plotting.
-mpl.rc('text', usetex=True)
+mpl.rc('text', usetex=False)
 mpl.rcParams.update({'font.size': 20})
 mpl.rcParams['text.latex.preamble'] = r'\usepackage[utf8]{inputenc}, \usepackage[english,russian]{babel}, \usepackage{amsmath}, \boldmath'
-mpl.rc('font',**{'family':'sans-serif','sans-serif':['Computer Modern Sans Serif']})
+mpl.rc('font',**{'family':'sans-serif','sans-serif':['CMU Serif']})
 
 ### For bar plot. ###
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
@@ -61,7 +61,7 @@ def dat_to_im_convert(dat_coord, size_x):
 def en_wf_plot(t_array, waveform, filename_to_save, style = 'k', color = 'k', lw='1.5', figsize=(10.5, 9.0), dpi=600, xlabel=r'\textbf{Time, ms}', ylabel=r'\textbf{Amplitude, V}'):
 	#Graph plotting
 	plt.figure(figsize=figsize, dpi=dpi)
-	plt.rcParams['text.latex.preamble'] = [r'\boldmath']
+	#plt.rcParams['text.latex.preamble'] = [r'\boldmath']
 	plt.xlabel(xlabel)
 	plt.ylabel(ylabel)
 	plt.plot(t_array, waveform, style, color='k', lw=1.5)
@@ -314,7 +314,7 @@ def simple_plotter_from_txt(x, y, filename, ls='ko', xlim = None, ylim = None, d
 
 	#Включение Latex.
 	mpl.rcdefaults()
-	mpl.rc('text', usetex=True)
+	mpl.rc('text', usetex=False)
 	plt.rcParams['text.latex.preamble'] = r"\usepackage[utf8]{inputenc} \usepackage[english,russian]{babel}  \usepackage{amsmath} \boldmath"
 	mpl.rc('font', weight='bold', family='serif')
 	mpl.rcParams.update({'font.size': font_size}) #fontsize

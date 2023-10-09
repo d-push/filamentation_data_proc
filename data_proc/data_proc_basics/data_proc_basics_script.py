@@ -57,24 +57,24 @@ def read_bin_new_Rudnev(filepath):
 		return(None)
 
 	E = struct.unpack('>l', data[0:4])[0]
-	T = (struct.unpack('15s', data[4:19])[0]).decode('UTF-8')
-	dt = struct.unpack('>d', data[19:27])[0]
-	ch0_on = struct.unpack('?', data[27:28])[0] #whether channel 0 was on
-	dV0 = struct.unpack('>d', data[28:36])[0] #[mV/bit]
-	ch0_adj = struct.unpack('>d', data[36:44])[0] #channel0 adjustment
-	ch1_on = struct.unpack('?', data[44:45])[0] #whether channel 1 was on
-	dV1 = struct.unpack('>d', data[45:53])[0] #[mV/bit]
-	ch1_adj = struct.unpack('>d', data[53:61])[0] #channel0 adjustment
+	T = (struct.unpack('22s', data[4:26])[0]).decode('UTF-8')
+	dt = struct.unpack('>d', data[26:34])[0]
+	ch0_on = struct.unpack('?', data[34:35])[0] #whether channel 0 was on
+	dV0 = struct.unpack('>d', data[35:43])[0] #[mV/bit]
+	ch0_adj = struct.unpack('>d', data[43:51])[0] #channel0 adjustment
+	ch1_on = struct.unpack('?', data[51:52])[0] #whether channel 1 was on
+	dV1 = struct.unpack('>d', data[52:60])[0] #[mV/bit]
+	ch1_adj = struct.unpack('>d', data[60:68])[0] #channel0 adjustment
 	
-	wf_len = len(data)-61
+	wf_len = len(data)-68
 	s = '>b'+ 'b'*(wf_len-1)
 	
 	try:
-		waveform = np.fromiter(struct.unpack(s, data[61:]), dtype='int8')
+		waveform = np.fromiter(struct.unpack(s, data[68:]), dtype='int8')
 	except (struct.error):
 		return(None)
 	
-	print(f"filename = {filepath}, E = {E}, T = {T}, dt = {dt}, dV0 = {dV0}, dV1 = {dV1}")
+	print(f"filename = {filepath}, E = {E}, T = {T}, dt = {dt}, ch0_on = {ch0_on}, dV0 = {dV0}, ch1_on = {ch1_on}, dV1 = {dV1}")
 	
 	two_channels = False
 	if ch0_on and ch1_on:
@@ -297,15 +297,24 @@ def read_maxima(folder_ac, filenames_ac_times, filenames_ac_info, ext, bd_mult, 
 	fon_size = 20 #Размер области для вычисления фона на кадрах с люминесценцией.
 	#fon_coeff = 1.0 # Коэффициент, на который домножается фон для определения "содержательных" данных на кадрах с люминесценцией.
 	max_level = 4000 # Только данные, не превышающие это значение, будут использованы при сопоставлении (нужно, чтобы отбросить пробой).
+	info_delim = '__'
 
 	maxima = np.zeros(len(filenames_ac_times))
 
 	if ext == '.bin':
 		for i in range(0,len(filenames_ac_times)):
 			if old_osc:
-				dt, dV, wf = read_bin(os.path.join(folder_ac, "__".join(filenames_ac_info[i]) + ext))
+				dt, dV, wf = read_bin(os.path.join(folder_ac, info_delim.join(filenames_ac_info[i]) + ext))
 			else:
-				dt, dV, wf = read_bin_new_program(os.path.join(folder_ac, "__".join(filenames_ac_info[i]) + ext))
+				try:
+					T, dt, dV, wf = read_bin_new_program(os.path.join(folder_ac, info_delim.join(filenames_ac_info[i]) + ext))
+				except FileNotFoundError:
+					if info_delim == '__':
+						info_delim = '_'
+					else:
+						info_delim = '__'
+				T, dt, dV, wf = read_bin_new_program(os.path.join(folder_ac, info_delim.join(filenames_ac_info[i]) + ext))
+				
 			if limit_max:
 				max_pos = max_find_borders(wf, dt)
 			elif ac_lims is None:
@@ -465,8 +474,10 @@ def make_file_list_to_compare_new_program(foldername_ac, ext):
 		return ([],[])
 	if ext == '.RAW':
 		filenames_ac_info = [f.split(ext)[0].split("-") for f in filenames_ac]
-	else:
+	elif '__' in filenames_ac[0]:
 		filenames_ac_info = [f.split(ext)[0].split("__") for f in filenames_ac]
+	else:
+		filenames_ac_info = [f.split(ext)[0].split("_") for f in filenames_ac]
 	filenames_ac_info_ext = []
 
 	if ext == '.RAW':
@@ -497,8 +508,8 @@ def make_file_list_to_compare_new_program(foldername_ac, ext):
 		filenames_ac_info_ext = np.array(list(zip(time_mode, filenames_ac_info)))
 	else:
 		for f in filenames_ac_info:
-			for segment in f:
-				if ('.' in segment or ',' in segment) and '-' in segment:
+			for segment in f[::-1]:
+				if ('.' in segment or ',' in segment) and ('-' in segment or '_' in segment):
 					break
 			time = calc_lum_time(segment)
 			filenames_ac_info_ext.append([time, f])
